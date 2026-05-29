@@ -9,8 +9,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +31,21 @@ var videoExts = map[string]bool{
 	".mp4": true, ".mkv": true, ".webm": true,
 	".mov": true, ".avi": true, ".m4v": true,
 	".ts": true, ".ogv": true,
+}
+
+// ffmpeg/ffprobe binaries (resolved at startup)
+var (
+	ffmpegBin  string
+	ffprobeBin string
+)
+
+func findBin(names ...string) string {
+	for _, name := range names {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // --- Session store ---
@@ -79,7 +97,6 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // --- Login handlers ---
 func loginPageHandler(w http.ResponseWriter, r *http.Request) {
-	// Already logged in — redirect to home
 	if c, err := r.Cookie("session"); err == nil && validSession(c.Value) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -203,6 +220,206 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// --- Clip editor helpers ---
+
+func resolveInRoot(root, p string) (string, error) {
+	full := filepath.Join(root, filepath.Clean("/"+p))
+	rel, err := filepath.Rel(root, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path escapes media root")
+	}
+	return full, nil
+}
+
+func thumbCacheDir(src string) string {
+	dir := filepath.Dir(src)
+	base := strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
+	return filepath.Join(dir, ".thumbs", base)
+}
+
+type SpriteMeta struct {
+	Duration    float64  `json:"duration"`
+	Interval    int      `json:"interval"`
+	Cols        int      `json:"cols"`
+	Rows        int      `json:"rows"`
+	ThumbWidth  int      `json:"thumbWidth"`
+	ThumbHeight int      `json:"thumbHeight"`
+	Sheets      []string `json:"sheets"`
+}
+
+func generateSprites(src, cacheDir string) error {
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return err
+	}
+
+	// Get duration via ffprobe
+	out, err := exec.Command(ffprobeBin,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		src,
+	).Output()
+	if err != nil {
+		return fmt.Errorf("ffprobe: %w", err)
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || duration <= 0 {
+		return fmt.Errorf("bad duration: %q", strings.TrimSpace(string(out)))
+	}
+
+	// Generate sprite sheets
+	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
+	cmd := exec.Command(ffmpegBin,
+		"-i", src,
+		"-vf", "fps=1/2,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=12x12",
+		"-qscale:v", "5",
+		"-y", spritePat,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg sprites: %w\n%s", err, out)
+	}
+
+	// Collect produced sheet filenames
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return err
+	}
+	var sheets []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "sprite_") && strings.HasSuffix(e.Name(), ".jpg") {
+			sheets = append(sheets, e.Name())
+		}
+	}
+	sort.Strings(sheets)
+	if len(sheets) == 0 {
+		return fmt.Errorf("no sprite sheets produced")
+	}
+
+	meta := SpriteMeta{
+		Duration:    duration,
+		Interval:    2,
+		Cols:        12,
+		Rows:        12,
+		ThumbWidth:  160,
+		ThumbHeight: 90,
+		Sheets:      sheets,
+	}
+	data, _ := json.MarshalIndent(meta, "", "  ")
+	return os.WriteFile(filepath.Join(cacheDir, "meta.json"), data, 0644)
+}
+
+func nextClipPath(src string) string {
+	dir := filepath.Dir(src)
+	ext := filepath.Ext(src)
+	base := strings.TrimSuffix(filepath.Base(src), ext)
+	re := regexp.MustCompile("^" + regexp.QuoteMeta(base) + `_clip(\d+)` + regexp.QuoteMeta(ext) + "$")
+
+	entries, _ := os.ReadDir(dir)
+	max := 0
+	for _, e := range entries {
+		if m := re.FindStringSubmatch(e.Name()); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s_clip%02d%s", base, max+1, ext))
+}
+
+// --- Clip editor handlers ---
+
+func metaHandler(w http.ResponseWriter, r *http.Request) {
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+
+	cacheDir := thumbCacheDir(src)
+	metaPath := filepath.Join(cacheDir, "meta.json")
+
+	// Regenerate if source is newer than cached meta
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		http.Error(w, "source not found", http.StatusNotFound)
+		return
+	}
+	metaInfo, err := os.Stat(metaPath)
+	needsGen := os.IsNotExist(err) || (err == nil && srcInfo.ModTime().After(metaInfo.ModTime()))
+
+	if needsGen {
+		if err := generateSprites(src, cacheDir); err != nil {
+			log.Printf("sprite generation failed for %s: %v", src, err)
+			http.Error(w, "sprite generation failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		http.Error(w, "meta read failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func spriteHandler(w http.ResponseWriter, r *http.Request) {
+	// /api/sprite?path=<video-rel-path>&sheet=sprite_001.jpg
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	sheet := filepath.Base(r.URL.Query().Get("sheet"))
+	if !strings.HasPrefix(sheet, "sprite_") || !strings.HasSuffix(sheet, ".jpg") {
+		http.Error(w, "bad sheet", http.StatusBadRequest)
+		return
+	}
+	imgPath := filepath.Join(thumbCacheDir(src), sheet)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, imgPath)
+}
+
+type clipRequest struct {
+	Path  string  `json:"path"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
+func clipHandler(w http.ResponseWriter, r *http.Request) {
+	var req clipRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	src, err := resolveInRoot(*videoRoot, req.Path)
+	if err != nil || req.End <= req.Start {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	out := nextClipPath(src)
+	dur := req.End - req.Start
+
+	cmd := exec.Command(ffmpegBin,
+		"-ss", fmt.Sprintf("%.3f", req.Start),
+		"-i", src,
+		"-t", fmt.Sprintf("%.3f", dur),
+		"-c", "copy",
+		"-y", out,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("ffmpeg clip failed: %v\n%s", err, output)
+		http.Error(w, "ffmpeg failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rel, _ := filepath.Rel(*videoRoot, out)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"clip": "/" + filepath.ToSlash(rel)})
+}
+
 func main() {
 	flag.Parse()
 
@@ -215,6 +432,17 @@ func main() {
 	if _, err := os.Stat(*videoRoot); os.IsNotExist(err) {
 		log.Fatalf("Video directory does not exist: %s", *videoRoot)
 	}
+
+	ffmpegBin = findBin("ffmpeg")
+	ffprobeBin = findBin("ffprobe", "ffmpeg.ffprobe")
+	if ffmpegBin == "" {
+		log.Fatal("ffmpeg not found on PATH")
+	}
+	if ffprobeBin == "" {
+		log.Fatal("ffprobe not found on PATH (tried ffprobe, ffmpeg.ffprobe)")
+	}
+	log.Printf("ffmpeg: %s", ffmpegBin)
+	log.Printf("ffprobe: %s", ffprobeBin)
 
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -231,6 +459,20 @@ func main() {
 		} else {
 			listHandler(w, r)
 		}
+	}))
+
+	http.HandleFunc("/api/video/meta", requireAuth(metaHandler))
+	http.HandleFunc("/api/sprite", requireAuth(spriteHandler))
+	http.HandleFunc("/api/clip", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		clipHandler(w, r)
+	}))
+
+	http.HandleFunc("/editor", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "editor.html")
 	}))
 
 	http.HandleFunc("/files/", func(w http.ResponseWriter, r *http.Request) {
