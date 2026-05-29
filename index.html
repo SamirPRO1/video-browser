@@ -1261,7 +1261,7 @@
   // Use mouseover (delegation) so we get one event per row entry, not every pixel
   document.getElementById('fileList').addEventListener('mouseover', e => {
     const row = e.target.closest('.file-row[data-path]');
-    if (!row || row.dataset.broken === 'true') return;
+    if (!row || row.dataset.broken === 'true' || row.dataset.path.includes('/CLIPS/')) return;
     clearTimeout(previewHideTimer);
     showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', row);
   });
