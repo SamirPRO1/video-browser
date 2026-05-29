@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -313,6 +314,193 @@ func generateSprites(src, cacheDir string) error {
 	return os.WriteFile(filepath.Join(cacheDir, "meta.json"), data, 0644)
 }
 
+// --- Sprite build job tracking ---
+
+type spriteJob struct {
+	Percent int    `json:"percent"`
+	Done    bool   `json:"done"`
+	Err     string `json:"err,omitempty"`
+}
+
+var (
+	spriteJobs   = map[string]*spriteJob{}
+	spriteJobsMu sync.Mutex
+)
+
+func getOrCreateJob(relPath string) (*spriteJob, bool) {
+	spriteJobsMu.Lock()
+	defer spriteJobsMu.Unlock()
+	if j, ok := spriteJobs[relPath]; ok {
+		return j, false // already exists
+	}
+	j := &spriteJob{}
+	spriteJobs[relPath] = j
+	return j, true // newly created
+}
+
+func generateSpritesAsync(relPath, src string, job *spriteJob) {
+	cacheDir := thumbCacheDir(src)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+
+	// Get duration
+	out, err := exec.Command(ffprobeBin,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		src,
+	).Output()
+	if err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, "ffprobe: "+err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || duration <= 0 {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, "bad duration"
+		spriteJobsMu.Unlock()
+		return
+	}
+
+	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
+	cmd := exec.Command(ffmpegBin,
+		"-progress", "pipe:1",
+		"-nostats",
+		"-i", src,
+		"-vf", "fps=1/2,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=12x12",
+		"-qscale:v", "5",
+		"-y", spritePat,
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+	cmd.Stderr = io.Discard
+
+	if err := cmd.Start(); err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "out_time_ms=") {
+			ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64)
+			if err == nil && duration > 0 && ms > 0 {
+				pct := int(float64(ms) / 1e6 / duration * 100)
+				if pct > 99 {
+					pct = 99
+				}
+				spriteJobsMu.Lock()
+				job.Percent = pct
+				spriteJobsMu.Unlock()
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, "ffmpeg: "+err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+
+	// Collect sheets and write meta.json
+	entries, _ := os.ReadDir(cacheDir)
+	var sheets []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "sprite_") && strings.HasSuffix(e.Name(), ".jpg") {
+			sheets = append(sheets, e.Name())
+		}
+	}
+	sort.Strings(sheets)
+
+	meta := SpriteMeta{
+		Duration:    duration,
+		Interval:    2,
+		Cols:        12,
+		Rows:        12,
+		ThumbWidth:  160,
+		ThumbHeight: 90,
+		Sheets:      sheets,
+	}
+	data, _ := json.MarshalIndent(meta, "", "  ")
+	if err := os.WriteFile(filepath.Join(cacheDir, "meta.json"), data, 0644); err != nil {
+		spriteJobsMu.Lock()
+		job.Done, job.Err = true, "write meta: "+err.Error()
+		spriteJobsMu.Unlock()
+		return
+	}
+
+	spriteJobsMu.Lock()
+	job.Percent = 100
+	job.Done = true
+	spriteJobsMu.Unlock()
+}
+
+func spriteBuildHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	relPath := r.URL.Query().Get("path")
+	src, err := resolveInRoot(*videoRoot, relPath)
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+
+	job, created := getOrCreateJob(relPath)
+	if created {
+		go generateSpritesAsync(relPath, src, job)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	spriteJobsMu.Lock()
+	json.NewEncoder(w).Encode(job)
+	spriteJobsMu.Unlock()
+}
+
+func spriteProgressHandler(w http.ResponseWriter, r *http.Request) {
+	relPath := r.URL.Query().Get("path")
+
+	spriteJobsMu.Lock()
+	job, ok := spriteJobs[relPath]
+	if ok {
+		json.NewEncoder(w).Encode(job)
+		spriteJobsMu.Unlock()
+		return
+	}
+	spriteJobsMu.Unlock()
+
+	// No active job — check if cache already exists
+	src, err := resolveInRoot(*videoRoot, relPath)
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	metaPath := filepath.Join(thumbCacheDir(src), "meta.json")
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := os.Stat(metaPath); err == nil {
+		json.NewEncoder(w).Encode(&spriteJob{Percent: 100, Done: true})
+	} else {
+		json.NewEncoder(w).Encode(&spriteJob{})
+	}
+}
+
 func nextClipPath(src string) string {
 	dir := filepath.Dir(src)
 	ext := filepath.Ext(src)
@@ -521,6 +709,8 @@ func main() {
 	}))
 
 	http.HandleFunc("/api/video/meta", requireAuth(metaHandler))
+	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
+	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))
 	http.HandleFunc("/api/sprite", requireAuth(spriteHandler))
 	http.HandleFunc("/api/clip", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
