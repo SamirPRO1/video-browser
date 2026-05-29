@@ -25,6 +25,7 @@ const hardcodedPassword = "videos123"
 var (
 	port      = flag.Int("port", 2354, "Port to listen on")
 	videoRoot = flag.String("dir", "./videos", "Root folder with video files")
+	cacheRoot = flag.String("cache", "./thumbcache", "Directory for thumbnail sprite cache")
 )
 
 var videoExts = map[string]bool{
@@ -232,9 +233,12 @@ func resolveInRoot(root, p string) (string, error) {
 }
 
 func thumbCacheDir(src string) string {
-	dir := filepath.Dir(src)
-	base := strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
-	return filepath.Join(dir, ".thumbs", base)
+	rel, err := filepath.Rel(*videoRoot, src)
+	if err != nil {
+		rel = filepath.Base(src)
+	}
+	base := strings.TrimSuffix(rel, filepath.Ext(rel))
+	return filepath.Join(*cacheRoot, base)
 }
 
 type SpriteMeta struct {
@@ -432,6 +436,16 @@ func main() {
 	if _, err := os.Stat(*videoRoot); os.IsNotExist(err) {
 		log.Fatalf("Video directory does not exist: %s", *videoRoot)
 	}
+
+	cacheAbs, err := filepath.Abs(*cacheRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	*cacheRoot = cacheAbs
+	if err := os.MkdirAll(*cacheRoot, 0755); err != nil {
+		log.Fatalf("Cannot create cache directory %s: %v", *cacheRoot, err)
+	}
+	log.Printf("Thumbnail cache: %s", *cacheRoot)
 
 	ffmpegBin = findBin("ffmpeg")
 	ffprobeBin = findBin("ffprobe", "ffmpeg.ffprobe")
