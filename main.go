@@ -936,9 +936,11 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		fpsExpr, cfg.Width, cfg.Height, cfg.Width, cfg.Height,
 	)
 	cmd1 := exec.Command(ffmpegBin,
+		"-skip_frame", "nointra", // decode keyframes only — 60-150x faster than full decode
 		"-progress", "pipe:1", "-nostats",
 		"-i", src,
 		"-vf", vf,
+		"-vsync", "vfr", // variable timestamps produced by skip_frame
 		"-q:v", strconv.Itoa(cfg.Quality),
 		"-y", framePat,
 	)
