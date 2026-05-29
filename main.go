@@ -391,17 +391,21 @@ func spriteVF(cfg spriteConfig) string {
 }
 
 func probeDuration(src string) (float64, error) {
-	out, err := exec.Command(ffprobeBin,
+	cmd := exec.Command(ffprobeBin,
 		"-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src,
-	).Output()
+	)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("ffprobe: %w", err)
+		return 0, fmt.Errorf("ffprobe: %w — %s", err, strings.TrimSpace(string(out)))
 	}
-	d, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("bad duration: %q", strings.TrimSpace(string(out)))
+	// Output may contain extra lines (warnings); grab the first numeric line.
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if d, err := strconv.ParseFloat(line, 64); err == nil && d > 0 {
+			return d, nil
+		}
 	}
-	return d, nil
+	return 0, fmt.Errorf("no duration in ffprobe output: %q", strings.TrimSpace(string(out)))
 }
 
 func collectSpriteSheets(cacheDir string) []string {
