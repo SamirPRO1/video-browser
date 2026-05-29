@@ -1138,17 +1138,20 @@
   const isMobile = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
   function positionPreviewAtRow(row) {
-    const pad = 12;
-    const pw = preview.offsetWidth  || 320;
+    const pad = 8;
     const ph = preview.offsetHeight || 210;
     const rect = row.getBoundingClientRect();
-    // Try to appear to the left of the file list so it never overlaps the row actions
-    let left = rect.left - pw - pad;
-    if (left < pad) left = rect.right + pad; // flip right if no room on left
-    if (left + pw > window.innerWidth - pad) left = window.innerWidth - pw - pad;
-    let top = rect.top + (rect.height / 2) - (ph / 2);
+
+    // Horizontal: as far left as possible — start at the main content area's left edge
+    const mainEl = document.querySelector('.main');
+    const left = mainEl ? mainEl.getBoundingClientRect().left + pad : pad;
+
+    // Vertical: center on the top boundary of the hovered row so it sits
+    // between that row and the one above it
+    let top = rect.top - ph / 2;
     if (top + ph > window.innerHeight - pad) top = window.innerHeight - ph - pad;
     if (top < pad) top = pad;
+
     preview.style.left = left + 'px';
     preview.style.top  = top  + 'px';
   }
