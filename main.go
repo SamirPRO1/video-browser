@@ -13,14 +13,50 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
+
+// --- Child process tracker ---
+// Keeps a reference to every ffmpeg subprocess so they can be killed on shutdown.
+var (
+	childProcs   = map[int]*os.Process{}
+	childProcsMu sync.Mutex
+)
+
+func trackCmd(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	childProcsMu.Lock()
+	childProcs[cmd.Process.Pid] = cmd.Process
+	childProcsMu.Unlock()
+}
+
+func untrackCmd(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	childProcsMu.Lock()
+	delete(childProcs, cmd.Process.Pid)
+	childProcsMu.Unlock()
+}
+
+func killAllChildren() {
+	childProcsMu.Lock()
+	defer childProcsMu.Unlock()
+	for pid, proc := range childProcs {
+		log.Printf("killing child ffmpeg pid %d", pid)
+		proc.Kill()
+	}
+}
 
 // --- Hardcoded password ---
 const hardcodedPassword = "videos123"
@@ -572,6 +608,7 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		spriteJobsMu.Unlock()
 		return
 	}
+	trackCmd(cmd)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -589,6 +626,7 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		}
 	}
 
+	untrackCmd(cmd)
 	if err := cmd.Wait(); err != nil {
 		spriteJobsMu.Lock()
 		job.Done, job.Err = true, "ffmpeg: "+err.Error()
@@ -954,6 +992,7 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		setErr(err.Error())
 		return
 	}
+	trackCmd(cmd1)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -971,6 +1010,7 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		}
 	}
 
+	untrackCmd(cmd1)
 	if err := cmd1.Wait(); err != nil {
 		setErr("ffmpeg (frames): " + err.Error())
 		return
@@ -1535,6 +1575,16 @@ func main() {
 		}
 		http.ServeFile(w, r, "index.html")
 	}))
+
+	// Kill all child ffmpeg processes on SIGTERM / SIGINT.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+		<-sig
+		log.Println("Shutting down — killing child processes…")
+		killAllChildren()
+		os.Exit(0)
+	}()
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("Video browser running at http://localhost%s", addr)
