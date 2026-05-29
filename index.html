@@ -570,6 +570,24 @@
   .hover-preview-img.rolling {
     animation: preview-roll 10s steps(150) infinite;
   }
+  .hover-preview-playbar {
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .hover-preview-playbar-fill {
+    position: absolute;
+    top: 0; left: 0; height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+  @keyframes preview-progress {
+    from { width: 0%; }
+    to   { width: 100%; }
+  }
   .hover-preview-bar {
     background: #1a1a1a;
     padding: 8px 12px;
@@ -844,6 +862,9 @@
 <!-- Hover video preview -->
 <div class="hover-preview" id="hoverPreview">
   <div class="hover-preview-img" id="hoverPreviewImg"></div>
+  <div class="hover-preview-playbar">
+    <div class="hover-preview-playbar-fill" id="hoverPreviewPlaybar"></div>
+  </div>
   <div class="hover-preview-bar">
     <div class="hover-preview-name" id="hoverPreviewName"></div>
   </div>
@@ -1095,7 +1116,9 @@
     previewImg.style.backgroundImage = `url('${url}')`;
     previewImg.style.backgroundSize  = `${fw}px ${stripH}px`;
     previewImg.style.setProperty('--strip-h', `-${stripH}px`);
-    previewImg.style.animation = `preview-roll ${getPreviewDuration()}s steps(${frames}) infinite`;
+    const dur = getPreviewDuration();
+    previewImg.style.animation = `preview-roll ${dur}s steps(${frames}) infinite`;
+    document.getElementById('hoverPreviewPlaybar').style.animation = `preview-progress ${dur}s linear infinite`;
   }
 
   function showPreviewLoading(pct) {
@@ -1138,7 +1161,8 @@
     previewHideTimer = setTimeout(() => {
       preview.classList.remove('visible');
       previewCurrentPath = null;
-      previewImg.classList.remove('rolling');
+      previewImg.style.animation = '';
+      document.getElementById('hoverPreviewPlaybar').style.animation = '';
       clearInterval(previewPollTimer);
     }, 120);
   }
