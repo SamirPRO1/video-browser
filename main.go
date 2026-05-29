@@ -812,64 +812,54 @@ func getOrCreatePreviewJob(relPath string) (*previewJob, bool) {
 }
 
 func generatePreviewAsync(relPath, src string, job *previewJob) {
+	setErr := func(msg string) {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, msg
+		previewJobsMu.Unlock()
+	}
+
 	cacheDir := thumbCacheDir(src)
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, err.Error()
-		previewJobsMu.Unlock()
+		setErr(err.Error())
 		return
 	}
 
-	out, err := exec.Command(ffprobeBin,
-		"-v", "error",
-		"-show_entries", "format=duration",
-		"-of", "csv=p=0",
-		src,
-	).Output()
+	duration, err := probeDuration(src)
 	if err != nil {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, "ffprobe: "+err.Error()
-		previewJobsMu.Unlock()
-		return
-	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err != nil || duration <= 0 {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, "bad duration"
-		previewJobsMu.Unlock()
+		setErr(err.Error())
 		return
 	}
 
-	// fps=N/D selects exactly N frames spread evenly across D seconds.
-	// tile=1xN stacks them into a single vertical strip.
+	// Clean up any leftover frame files from a previous interrupted run.
+	old, _ := filepath.Glob(filepath.Join(cacheDir, "pframe_*.jpg"))
+	for _, f := range old {
+		os.Remove(f)
+	}
+
+	// Step 1 — extract frames individually.
+	// Each frame is written as it's decoded, so out_time_ms advances
+	// continuously and gives real progress throughout the video.
 	fpsExpr := fmt.Sprintf("%d/%d", previewFrames, int(math.Ceil(duration)))
+	framePat := filepath.Join(cacheDir, "pframe_%03d.jpg")
 	vf := fmt.Sprintf(
-		"fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tile=1x%d",
-		fpsExpr, previewW, previewH, previewW, previewH, previewFrames,
+		"fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
+		fpsExpr, previewW, previewH, previewW, previewH,
 	)
-	previewPath := filepath.Join(cacheDir, "preview.jpg")
-
-	cmd := exec.Command(ffmpegBin,
-		"-progress", "pipe:1",
-		"-nostats",
+	cmd1 := exec.Command(ffmpegBin,
+		"-progress", "pipe:1", "-nostats",
 		"-i", src,
 		"-vf", vf,
-		"-frames:v", "1",
 		"-q:v", "4",
-		"-y", previewPath,
+		"-y", framePat,
 	)
-	stdout, err := cmd.StdoutPipe()
+	stdout, err := cmd1.StdoutPipe()
 	if err != nil {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, err.Error()
-		previewJobsMu.Unlock()
+		setErr(err.Error())
 		return
 	}
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, err.Error()
-		previewJobsMu.Unlock()
+	cmd1.Stderr = io.Discard
+	if err := cmd1.Start(); err != nil {
+		setErr(err.Error())
 		return
 	}
 
@@ -877,11 +867,10 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "out_time_ms=") {
-			ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64)
-			if err == nil && duration > 0 && ms > 0 {
-				pct := int(float64(ms) / 1e6 / duration * 100)
-				if pct > 99 {
-					pct = 99
+			if ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64); err == nil && ms > 0 {
+				pct := int(float64(ms) / 1e6 / duration * 95) // reserve 95-100 for step 2
+				if pct > 95 {
+					pct = 95
 				}
 				previewJobsMu.Lock()
 				job.Percent = pct
@@ -890,12 +879,47 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		}
 	}
 
-	if err := cmd.Wait(); err != nil {
-		previewJobsMu.Lock()
-		job.Done, job.Err = true, "ffmpeg: "+err.Error()
-		previewJobsMu.Unlock()
+	if err := cmd1.Wait(); err != nil {
+		setErr("ffmpeg (frames): " + err.Error())
 		return
 	}
+
+	// Count actual frames produced — tile uses this so it never fails
+	// due to rounding (short videos, unusual framerates, etc.)
+	frameFiles, _ := filepath.Glob(filepath.Join(cacheDir, "pframe_*.jpg"))
+	actualFrames := len(frameFiles)
+	if actualFrames == 0 {
+		setErr("no frames produced")
+		return
+	}
+
+	// Step 2 — tile frames into single vertical strip. Nearly instant.
+	previewPath := filepath.Join(cacheDir, "preview.jpg")
+	cmd2 := exec.Command(ffmpegBin,
+		"-i", framePat,
+		"-vf", fmt.Sprintf("tile=1x%d", actualFrames),
+		"-frames:v", "1",
+		"-q:v", "4",
+		"-y", previewPath,
+	)
+	if out, err := cmd2.CombinedOutput(); err != nil {
+		for _, f := range frameFiles {
+			os.Remove(f)
+		}
+		setErr("ffmpeg (tile): " + string(out))
+		return
+	}
+
+	for _, f := range frameFiles {
+		os.Remove(f)
+	}
+
+	// Store actual frame count so the frontend can animate correctly.
+	type previewMeta struct {
+		Frames int `json:"frames"`
+	}
+	metaData, _ := json.Marshal(previewMeta{Frames: actualFrames})
+	os.WriteFile(filepath.Join(cacheDir, "preview_meta.json"), metaData, 0644)
 
 	previewJobsMu.Lock()
 	job.Percent = 100
@@ -958,6 +982,25 @@ func previewImageHandler(w http.ResponseWriter, r *http.Request) {
 	imgPath := filepath.Join(thumbCacheDir(src), "preview.jpg")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, imgPath)
+}
+
+func previewMetaHandler(w http.ResponseWriter, r *http.Request) {
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	metaPath := filepath.Join(thumbCacheDir(src), "preview_meta.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		// Older previews without meta — assume default frame count
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"frames":%d}`, previewFrames)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(data)
 }
 
 // --- Bulk preview generation ---
@@ -1312,6 +1355,7 @@ func main() {
 	}))
 	http.HandleFunc("/api/preview/build", requireAuth(previewBuildHandler))
 	http.HandleFunc("/api/preview/progress", requireAuth(previewProgressHandler))
+	http.HandleFunc("/api/preview/meta", requireAuth(previewMetaHandler))
 	http.HandleFunc("/api/preview", requireAuth(previewImageHandler))
 	http.HandleFunc("/api/clip", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

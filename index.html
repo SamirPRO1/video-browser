@@ -548,7 +548,7 @@
     background-size: 320px 27000px; /* 150 frames × 180px */
   }
   @keyframes preview-roll {
-    to { background-position-y: -27000px; }
+    to { background-position-y: var(--strip-h, -27000px); }
   }
   .hover-preview-img.rolling {
     animation: preview-roll 10s steps(150) infinite;
@@ -1019,18 +1019,26 @@
     }
   }
 
-  function loadPreviewImage(path) {
+  async function loadPreviewImage(path) {
     const url = `/api/preview?path=${encodeURIComponent(path)}`;
-    // Preload then display
-    const img = new Image();
-    img.onload = () => {
-      if (previewCurrentPath !== path) return;
-      previewImg.innerHTML = '';
-      previewImg.style.backgroundImage = `url('${url}')`;
-      previewImg.classList.add('rolling');
-      previewImg.style.animationDuration = getPreviewDuration() + 's';
-    };
-    img.src = url;
+    // Fetch frame count and preload image in parallel
+    const [metaRes, imgLoaded] = await Promise.all([
+      fetch(`/api/preview/meta?path=${encodeURIComponent(path)}`).then(r => r.json()).catch(() => ({frames: 150})),
+      new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = url;
+      }),
+    ]);
+    if (previewCurrentPath !== path || !imgLoaded) return;
+    const frames = metaRes.frames || 150;
+    const stripH = 180 * frames; // previewH * frames
+    previewImg.innerHTML = '';
+    previewImg.style.backgroundImage = `url('${url}')`;
+    previewImg.style.backgroundSize = `320px ${stripH}px`;
+    previewImg.style.setProperty('--strip-h', `-${stripH}px`);
+    previewImg.style.animation = `preview-roll ${getPreviewDuration()}s steps(${frames}) infinite`;
   }
 
   function showPreviewLoading(pct) {
