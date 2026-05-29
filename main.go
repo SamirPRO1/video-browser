@@ -766,6 +766,126 @@ func previewImageHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, imgPath)
 }
 
+// --- Bulk preview generation ---
+
+type bulkJob struct {
+	Total   int    `json:"total"`
+	Done    int    `json:"done"`
+	Current string `json:"current,omitempty"`
+	Running bool   `json:"running"`
+}
+
+var (
+	bulk   bulkJob
+	bulkMu sync.Mutex
+)
+
+func collectVideos(root string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		if strings.HasPrefix(info.Name(), ".") {
+			return nil
+		}
+		if videoExts[strings.ToLower(filepath.Ext(p))] {
+			files = append(files, p)
+		}
+		return nil
+	})
+	return files, err
+}
+
+func runBulkPreview() {
+	videos, err := collectVideos(*videoRoot)
+	if err != nil {
+		bulkMu.Lock()
+		bulk.Running = false
+		bulkMu.Unlock()
+		return
+	}
+
+	// Filter to only those without a preview
+	var pending []string
+	for _, v := range videos {
+		previewPath := filepath.Join(thumbCacheDir(v), "preview.jpg")
+		if _, err := os.Stat(previewPath); os.IsNotExist(err) {
+			pending = append(pending, v)
+		}
+	}
+
+	bulkMu.Lock()
+	bulk.Total = len(pending)
+	bulk.Done = 0
+	bulkMu.Unlock()
+
+	for _, src := range pending {
+		rel, _ := filepath.Rel(*videoRoot, src)
+		relPath := "/" + filepath.ToSlash(rel)
+
+		bulkMu.Lock()
+		bulk.Current = filepath.Base(src)
+		bulkMu.Unlock()
+
+		// Reuse the per-file job system so individual progress also works
+		job, created := getOrCreatePreviewJob(relPath)
+		if created {
+			generatePreviewAsync(relPath, src, job) // blocking — one at a time
+		} else {
+			// Wait for existing job to finish
+			for {
+				previewJobsMu.Lock()
+				done := job.Done
+				previewJobsMu.Unlock()
+				if done {
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+
+		bulkMu.Lock()
+		bulk.Done++
+		bulkMu.Unlock()
+	}
+
+	bulkMu.Lock()
+	bulk.Running = false
+	bulk.Current = ""
+	bulkMu.Unlock()
+}
+
+func previewBuildAllHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	bulkMu.Lock()
+	if bulk.Running {
+		bulkMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(bulk)
+		return
+	}
+	bulk = bulkJob{Running: true}
+	bulkMu.Unlock()
+
+	go runBulkPreview()
+
+	w.Header().Set("Content-Type", "application/json")
+	bulkMu.Lock()
+	json.NewEncoder(w).Encode(bulk)
+	bulkMu.Unlock()
+}
+
+func previewBuildAllProgressHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	bulkMu.Lock()
+	json.NewEncoder(w).Encode(bulk)
+	bulkMu.Unlock()
+}
+
 // nextClipPath returns the physical save path and the virtual browser path for the next clip.
 func nextClipPath(src string) (physical, virtual string) {
 	rel, _ := filepath.Rel(*videoRoot, src)
@@ -979,6 +1099,13 @@ func main() {
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
 	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))
 	http.HandleFunc("/api/sprite", requireAuth(spriteHandler))
+	http.HandleFunc("/api/preview/build-all", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			previewBuildAllHandler(w, r)
+		} else {
+			previewBuildAllProgressHandler(w, r)
+		}
+	}))
 	http.HandleFunc("/api/preview/build", requireAuth(previewBuildHandler))
 	http.HandleFunc("/api/preview/progress", requireAuth(previewProgressHandler))
 	http.HandleFunc("/api/preview", requireAuth(previewImageHandler))
