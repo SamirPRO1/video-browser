@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -385,6 +386,33 @@ func spriteHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, imgPath)
 }
 
+// moveFile tries os.Rename first (fast, same-fs), falls back to copy+delete.
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(dst)
+		return err
+	}
+	os.Remove(src)
+	return nil
+}
+
 type clipRequest struct {
 	Path  string  `json:"path"`
 	Start float64 `json:"start"`
@@ -406,16 +434,33 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 	out := nextClipPath(src)
 	dur := req.End - req.Start
 
+	// ffmpeg (snap-confined) cannot write to the mounted video directory,
+	// so write to /tmp then copy with Go which runs as the ubuntu user.
+	tmpFile, err := os.CreateTemp("", "vbclip_*"+filepath.Ext(out))
+	if err != nil {
+		http.Error(w, "failed to create temp file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
 	cmd := exec.Command(ffmpegBin,
 		"-ss", fmt.Sprintf("%.3f", req.Start),
 		"-i", src,
 		"-t", fmt.Sprintf("%.3f", dur),
 		"-c", "copy",
-		"-y", out,
+		"-y", tmpPath,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("ffmpeg clip failed: %v\n%s", err, output)
 		http.Error(w, "ffmpeg failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := moveFile(tmpPath, out); err != nil {
+		log.Printf("move clip failed: %v", err)
+		http.Error(w, "failed to save clip: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
