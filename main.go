@@ -141,12 +141,13 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 
 // --- File listing ---
 type Entry struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	VMPath  string `json:"vmPath,omitempty"`
-	IsDir   bool   `json:"isDir"`
-	Size    int64  `json:"size,omitempty"`
-	ModTime string `json:"modTime,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	VMPath     string `json:"vmPath,omitempty"`
+	IsDir      bool   `json:"isDir"`
+	Size       int64  `json:"size,omitempty"`
+	ModTime    string `json:"modTime,omitempty"`
+	HasSprites bool   `json:"hasSprites,omitempty"`
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +182,11 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		if info != nil {
 			entry.Size = info.Size()
 			entry.ModTime = info.ModTime().Format(time.RFC3339)
+		}
+		if !e.IsDir() {
+			metaPath := filepath.Join(thumbCacheDir(absPath), "meta.json")
+			_, err := os.Stat(metaPath)
+			entry.HasSprites = err == nil
 		}
 		result = append(result, entry)
 	}

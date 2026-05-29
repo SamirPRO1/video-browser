@@ -145,7 +145,7 @@
   /* File list header */
   .list-header {
     display: grid;
-    grid-template-columns: 1fr 140px 100px 100px;
+    grid-template-columns: 1fr 140px 100px 128px;
     padding: 0 24px;
     height: 36px;
     align-items: center;
@@ -166,7 +166,7 @@
   }
   .file-row {
     display: grid;
-    grid-template-columns: 1fr 140px 100px 100px;
+    grid-template-columns: 1fr 140px 100px 128px;
     padding: 0 24px;
     height: var(--row-height);
     align-items: center;
@@ -218,6 +218,8 @@
   }
   .action-btn:hover { background: var(--border); color: var(--accent); }
   .action-btn.danger:hover { background: #fce8e6; color: var(--danger); }
+  .action-btn.sprites-ready { color: #1e8e3e; }
+  .action-btn.sprites-ready:hover { background: #e6f4ea; color: #137333; }
 
   .empty-state {
     display: flex;
@@ -664,6 +666,9 @@
             <a class="action-btn" title="Download" href="${fileUrl}" download="${safeName}" onclick="event.stopPropagation()">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
             </a>
+            <button class="action-btn ${entry.hasSprites ? 'sprites-ready' : ''}" title="${entry.hasSprites ? 'Sprites built ✓' : 'Build sprites'}" onclick="rowBuildSprites(event, ${ctx})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14zM5 15h2v2H5zm0-4h2v2H5zm0-4h2v2H5zm4 8h6v2H9zm0-4h6v2H9zm0-4h6v2H9zm8 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2z"/></svg>
+            </button>
             <button class="action-btn" title="More options" onclick="openMenu(event, ${ctx})">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
             </button>
@@ -709,15 +714,21 @@
   // ── Sprite build ──────────────────────────────────────────────────
   const buildPollers = {}; // relPath → intervalId
 
-  async function ctxBuildSprites() {
+  function rowBuildSprites(event, entry) {
+    event.stopPropagation();
+    startBuild(entry.path, entry.name);
+  }
+
+  function ctxBuildSprites() {
     if (!ctxEntry) return;
     const { path, name } = ctxEntry;
     closeMenu();
+    startBuild(path, name);
+  }
 
-    // Don't start a duplicate
-    if (buildPollers[path]) { showToast('Already building sprites for this file'); return; }
+  async function startBuild(path, name) {
+    if (buildPollers[path]) { showToast('Already building — check the progress card'); return; }
 
-    // Show card immediately at 0%
     showBuildCard(path, name, 0, false, '');
 
     try {
@@ -735,8 +746,10 @@
         if (data.done) {
           clearInterval(buildPollers[path]);
           delete buildPollers[path];
-          // Auto-hide card after 4s on success
-          if (!data.err) setTimeout(() => removeBuildCard(path), 4000);
+          if (!data.err) {
+            setTimeout(() => removeBuildCard(path), 4000);
+            loadDirectory(currentPath); // refresh row to show green sprite icon
+          }
         }
       } catch(e) {
         updateBuildCard(path, 0, true, e.message);
