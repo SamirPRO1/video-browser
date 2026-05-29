@@ -123,6 +123,7 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 type Entry struct {
 	Name    string `json:"name"`
 	Path    string `json:"path"`
+	VMPath  string `json:"vmPath,omitempty"`
 	IsDir   bool   `json:"isDir"`
 	Size    int64  `json:"size,omitempty"`
 	ModTime string `json:"modTime,omitempty"`
@@ -155,7 +156,8 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		entryPath := filepath.ToSlash(filepath.Join(rel, name))
-		entry := Entry{Name: name, Path: entryPath, IsDir: e.IsDir()}
+		absPath := filepath.Join(abs, name)
+		entry := Entry{Name: name, Path: entryPath, VMPath: absPath, IsDir: e.IsDir()}
 		if info != nil {
 			entry.Size = info.Size()
 			entry.ModTime = info.ModTime().Format(time.RFC3339)
@@ -172,6 +174,33 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func deleteHandler(w http.ResponseWriter, r *http.Request) {
+	rel := r.URL.Query().Get("path")
+	rel = filepath.Clean("/" + rel)
+	abs := filepath.Join(*videoRoot, rel)
+
+	if !strings.HasPrefix(abs, filepath.Clean(*videoRoot)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "cannot delete directories", http.StatusBadRequest)
+		return
+	}
+
+	if err := os.Remove(abs); err != nil {
+		http.Error(w, "failed to delete: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func main() {
@@ -196,7 +225,13 @@ func main() {
 	})
 	http.HandleFunc("/logout", logoutHandler)
 
-	http.HandleFunc("/api/files", requireAuth(listHandler))
+	http.HandleFunc("/api/files", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleteHandler(w, r)
+		} else {
+			listHandler(w, r)
+		}
+	}))
 
 	http.HandleFunc("/files/", func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, "/files")
