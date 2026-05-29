@@ -242,8 +242,12 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		absPath := filepath.Join(abs, name)
 		entry := Entry{Name: name, Path: entryPath, VMPath: absPath, IsDir: e.IsDir()}
 		if info != nil {
-			entry.Size = info.Size()
 			entry.ModTime = info.ModTime().Format(time.RFC3339)
+			if e.IsDir() {
+				entry.Size = dirSize(absPath)
+			} else {
+				entry.Size = info.Size()
+			}
 		}
 		if !e.IsDir() {
 			cacheDir := thumbCacheDir(absPath)
@@ -320,6 +324,7 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to delete: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	invalidateDirSizeCache(filepath.Dir(abs))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -332,6 +337,30 @@ func resolveInRoot(root, p string) (string, error) {
 		return "", fmt.Errorf("path escapes media root")
 	}
 	return full, nil
+}
+
+var dirSizeCache sync.Map // abs path → int64
+
+func dirSize(path string) int64 {
+	if v, ok := dirSizeCache.Load(path); ok {
+		return v.(int64)
+	}
+	var total int64
+	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	dirSizeCache.Store(path, total)
+	return total
+}
+
+func invalidateDirSizeCache(path string) {
+	// Walk up and invalidate every ancestor inside videoRoot.
+	for p := path; strings.HasPrefix(p, filepath.Clean(*videoRoot)); p = filepath.Dir(p) {
+		dirSizeCache.Delete(p)
+	}
 }
 
 func thumbCacheDir(src string) string {
@@ -1373,6 +1402,7 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	invalidateDirSizeCache(filepath.Dir(physOut))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"clip": virtOut})
 }

@@ -314,6 +314,29 @@
     letter-spacing: 0.5px;
     flex-shrink: 0;
   }
+  .list-header-col {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .list-header-col:hover { color: var(--text); }
+  .list-header-col.active { color: var(--accent); }
+  .sort-arrow { font-size: 10px; opacity: 0.7; }
+
+  /* Summary bar */
+  .dir-summary {
+    padding: 4px 24px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    gap: 16px;
+  }
+  .dir-summary span { white-space: nowrap; }
 
   /* File list */
   .file-list {
@@ -798,11 +821,12 @@
   <div class="main">
     <div class="breadcrumb" id="breadcrumb"></div>
     <div class="list-header">
-      <div>Name</div>
-      <div>Modified</div>
-      <div>Size</div>
+      <div class="list-header-col active" id="hdrName" onclick="setSort('name')">Name <span class="sort-arrow" id="arrName">▲</span></div>
+      <div class="list-header-col" id="hdrDate" onclick="setSort('date')">Modified <span class="sort-arrow" id="arrDate"></span></div>
+      <div class="list-header-col" id="hdrSize" onclick="setSort('size')">Size <span class="sort-arrow" id="arrSize"></span></div>
       <div></div>
     </div>
+    <div class="dir-summary" id="dirSummary"></div>
     <div class="file-list" id="fileList"></div>
   </div>
 </div>
@@ -876,6 +900,9 @@
 
 <script>
   let currentPath = '/';
+  let currentEntries = [];
+  let sortCol = 'name';
+  let sortDir = 1; // 1 = asc, -1 = desc
 
   // ── Navigation ──────────────────────────────────────────────────
   function navigate(path) {
@@ -907,8 +934,9 @@
     try {
       const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
       if (res.status === 401) { window.location.href = '/login'; return; }
-      const entries = await res.json();
-      renderList(entries, path);
+      currentEntries = await res.json();
+      renderSummary(currentEntries, path);
+      renderList(sortEntries(currentEntries), path);
     } catch(e) {
       list.innerHTML = '<div class="empty-state">Failed to load directory.</div>';
     }
@@ -926,6 +954,60 @@
   function formatDate(iso) {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  // ── Sort ────────────────────────────────────────────────────────
+  function setSort(col) {
+    if (sortCol === col) {
+      sortDir = -sortDir;
+    } else {
+      sortCol = col;
+      sortDir = col === 'size' ? -1 : 1; // size defaults to desc (largest first)
+    }
+    updateSortHeaders();
+    renderList(sortEntries(currentEntries), currentPath);
+  }
+
+  function updateSortHeaders() {
+    ['name','date','size'].forEach(c => {
+      const hdr = document.getElementById('hdr' + c.charAt(0).toUpperCase() + c.slice(1));
+      const arr = document.getElementById('arr' + c.charAt(0).toUpperCase() + c.slice(1));
+      if (!hdr || !arr) return;
+      hdr.classList.toggle('active', c === sortCol);
+      arr.textContent = c === sortCol ? (sortDir === 1 ? '▲' : '▼') : '';
+    });
+  }
+
+  function sortEntries(entries) {
+    const dirs  = entries.filter(e => e.isDir);
+    const files = entries.filter(e => !e.isDir);
+    const cmp = (a, b) => {
+      let va, vb;
+      if (sortCol === 'name') {
+        va = a.name.toLowerCase(); vb = b.name.toLowerCase();
+        return sortDir * va.localeCompare(vb);
+      } else if (sortCol === 'date') {
+        va = a.modTime || ''; vb = b.modTime || '';
+      } else {
+        va = a.size || 0; vb = b.size || 0;
+      }
+      return sortDir * (va < vb ? -1 : va > vb ? 1 : 0);
+    };
+    return [...dirs.sort(cmp), ...files.sort(cmp)];
+  }
+
+  // ── Summary bar ─────────────────────────────────────────────────
+  function renderSummary(entries, path) {
+    const bar = document.getElementById('dirSummary');
+    if (!entries || path !== currentPath) { bar.innerHTML = ''; return; }
+    const folders = entries.filter(e => e.isDir).length;
+    const files   = entries.filter(e => !e.isDir).length;
+    const total   = entries.reduce((s, e) => s + (e.size || 0), 0);
+    const parts = [];
+    if (folders) parts.push(`<span>${folders} folder${folders !== 1 ? 's' : ''}</span>`);
+    if (files)   parts.push(`<span>${files} video${files !== 1 ? 's' : ''}</span>`);
+    if (total)   parts.push(`<span>Total: <strong>${formatSize(total)}</strong></span>`);
+    bar.innerHTML = parts.join('<span style="color:var(--border)">·</span>');
   }
 
   function escapeHtml(str) {
@@ -982,7 +1064,7 @@
         html += `<div class="file-row" onclick="navigate(${attrJson(entry.path)})">
           <div class="file-name">${folderIcon()}<span>${safeName}</span></div>
           <div class="file-date">${formatDate(entry.modTime)}</div>
-          <div class="file-size">—</div>
+          <div class="file-size">${entry.size ? formatSize(entry.size) : '—'}</div>
           <div></div>
         </div>`;
       } else {
