@@ -629,8 +629,9 @@
 
   function ctxEdit() {
     if (!ctxEntry) return;
+    const path = ctxEntry.path;
     closeMenu();
-    window.location.href = '/editor?path=' + encodeURIComponent(ctxEntry.path);
+    window.location.href = '/editor?path=' + encodeURIComponent(path);
   }
 
   function ctxCopyUrl() {
