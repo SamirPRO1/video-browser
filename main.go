@@ -606,6 +606,47 @@ func spriteQueueHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(jobs)
 }
 
+// --- Unified queue ---
+
+type queueItem struct {
+	Path      string    `json:"path"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"` // "sprite" or "preview"
+	Percent   int       `json:"percent"`
+	Done      bool      `json:"done"`
+	Err       string    `json:"err,omitempty"`
+	StartedAt time.Time `json:"startedAt"`
+}
+
+func unifiedQueueHandler(w http.ResponseWriter, r *http.Request) {
+	var items []queueItem
+
+	spriteJobsMu.Lock()
+	for _, j := range spriteJobs {
+		items = append(items, queueItem{
+			Path: j.Path, Name: j.Name, Type: "sprite",
+			Percent: j.Percent, Done: j.Done, Err: j.Err, StartedAt: j.StartedAt,
+		})
+	}
+	spriteJobsMu.Unlock()
+
+	previewJobsMu.Lock()
+	for _, j := range previewJobs {
+		items = append(items, queueItem{
+			Path: j.Path, Name: j.Name, Type: "preview",
+			Percent: j.Percent, Done: j.Done, Err: j.Err, StartedAt: j.StartedAt,
+		})
+	}
+	previewJobsMu.Unlock()
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
 // spriteBuildFolderHandler queues sprite generation for all videos in one folder (non-recursive).
 func spriteBuildFolderHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -746,9 +787,12 @@ const (
 )
 
 type previewJob struct {
-	Percent int    `json:"percent"`
-	Done    bool   `json:"done"`
-	Err     string `json:"err,omitempty"`
+	Path      string    `json:"path"`
+	Name      string    `json:"name"`
+	Percent   int       `json:"percent"`
+	Done      bool      `json:"done"`
+	Err       string    `json:"err,omitempty"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 var (
@@ -759,10 +803,10 @@ var (
 func getOrCreatePreviewJob(relPath string) (*previewJob, bool) {
 	previewJobsMu.Lock()
 	defer previewJobsMu.Unlock()
-	if j, ok := previewJobs[relPath]; ok {
+	if j, ok := previewJobs[relPath]; ok && !j.Done {
 		return j, false
 	}
-	j := &previewJob{}
+	j := &previewJob{Path: relPath, Name: filepath.Base(relPath), StartedAt: time.Now()}
 	previewJobs[relPath] = j
 	return j, true
 }
@@ -1254,6 +1298,7 @@ func main() {
 		}
 	}))
 	http.HandleFunc("/api/sprite/build-folder", requireAuth(spriteBuildFolderHandler))
+	http.HandleFunc("/api/queue", requireAuth(unifiedQueueHandler))
 	http.HandleFunc("/api/sprite/queue", requireAuth(spriteQueueHandler))
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
 	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))

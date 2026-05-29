@@ -247,6 +247,23 @@
     color: var(--text-secondary);
     font-style: italic;
   }
+  .queue-type {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .queue-type.sprite  { background: #e8f0fe; color: var(--accent); }
+  .queue-type.preview { background: #fce8e6; color: #c5221f; }
+  .queue-eta {
+    font-size: 10px;
+    color: var(--text-secondary);
+    padding-left: 0;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Main content */
   .main {
@@ -628,6 +645,21 @@
 
     <!-- Previews -->
     <div class="sidebar-section">Previews</div>
+    <div class="settings-toggle" id="previewSettingsToggle" onclick="togglePreviewSettings()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+      Settings
+    </div>
+    <div class="sprite-settings" id="previewSettings">
+      <div class="settings-row">
+        <label>Loop duration</label>
+        <select id="cfgPreviewDuration" onchange="savePreviewSettings()">
+          <option value="10" selected>10 sec</option>
+          <option value="15">15 sec</option>
+          <option value="20">20 sec</option>
+          <option value="30">30 sec</option>
+        </select>
+      </div>
+    </div>
     <div class="sidebar-action" onclick="startGenerateAll()">
       <div class="sidebar-action-top">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
@@ -996,6 +1028,7 @@
       previewImg.innerHTML = '';
       previewImg.style.backgroundImage = `url('${url}')`;
       previewImg.classList.add('rolling');
+      previewImg.style.animationDuration = getPreviewDuration() + 's';
     };
     img.src = url;
   }
@@ -1014,6 +1047,7 @@
   async function triggerPreviewBuild(path) {
     try {
       await fetch(`/api/preview/build?path=${encodeURIComponent(path)}`, { method: 'POST' });
+      startQueuePolling();
     } catch(e) { return; }
 
     previewPollTimer = setInterval(async () => {
@@ -1074,6 +1108,25 @@
     setTimeout(() => hidePreview(), 2000);
   }, { passive: true });
 
+  // ── Preview settings ──────────────────────────────────────────────
+  function loadPreviewSettings() {
+    const s = JSON.parse(localStorage.getItem('previewSettings') || '{}');
+    if (s.duration) document.getElementById('cfgPreviewDuration').value = s.duration;
+  }
+  function savePreviewSettings() {
+    localStorage.setItem('previewSettings', JSON.stringify({
+      duration: document.getElementById('cfgPreviewDuration').value,
+    }));
+  }
+  function getPreviewDuration() {
+    return parseInt(document.getElementById('cfgPreviewDuration').value) || 10;
+  }
+  function togglePreviewSettings() {
+    document.getElementById('previewSettingsToggle').classList.toggle('open');
+    document.getElementById('previewSettings').classList.toggle('open');
+  }
+  loadPreviewSettings();
+
   // ── Sprite settings ───────────────────────────────────────────────
   function loadSettings() {
     const s = JSON.parse(localStorage.getItem('spriteSettings') || '{}');
@@ -1117,28 +1170,44 @@
 
   async function pollQueue() {
     try {
-      const res = await fetch('/api/sprite/queue');
+      const res = await fetch('/api/queue');
       const jobs = await res.json();
       renderQueue(jobs);
-      const anyRunning = jobs.some(j => !j.done);
-      if (!anyRunning) stopQueuePolling();
+      if (!(jobs || []).some(j => !j.done)) stopQueuePolling();
     } catch(e) {}
+  }
+
+  function fmtETA(percent, startedAt) {
+    if (!startedAt || percent <= 2) return '';
+    const elapsed = (Date.now() - new Date(startedAt).getTime()) / 1000;
+    if (elapsed < 2) return '';
+    const rate = percent / elapsed;
+    const rem = (100 - percent) / rate;
+    if (rem < 5) return '';
+    if (rem < 60) return `~${Math.round(rem)}s left`;
+    const m = Math.floor(rem / 60), s = Math.round(rem % 60);
+    return `~${m}m ${s < 10 ? '0' : ''}${s}s left`;
   }
 
   function renderQueue(jobs) {
     const el = document.getElementById('spriteQueue');
     const visible = (jobs || []).filter(j => !dismissedJobs.has(j.path));
     if (!visible.length) { el.innerHTML = '<div class="queue-empty">No jobs yet</div>'; return; }
-    el.innerHTML = visible.slice(0, 20).map(j => {
+    el.innerHTML = visible.slice(0, 30).map(j => {
       const pct  = Math.min(100, j.percent || 0);
       const cls  = j.err ? 'error' : j.done ? 'done' : '';
       const pctLabel = j.err ? '✗' : j.done ? '✓' : pct + '%';
+      const eta  = (!j.done && !j.err) ? fmtETA(pct, j.startedAt) : '';
+      const type = j.type || 'sprite';
+      const typeLabel = type === 'preview' ? 'Preview' : 'Sprite';
       return `<div class="queue-item">
         <div class="queue-item-top">
+          <span class="queue-type ${type}">${typeLabel}</span>
           <span class="queue-item-name" title="${escapeHtml(j.name || j.path)}">${escapeHtml(j.name || j.path)}</span>
           <span class="queue-item-pct ${cls}">${pctLabel}</span>
         </div>
         <div class="queue-bar"><div class="queue-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        ${eta ? `<div class="queue-eta">${eta}</div>` : ''}
         <span class="queue-dismiss" onclick="dismissJob('${escapeHtml(j.path)}')">✕</span>
       </div>`;
     }).join('');
@@ -1359,6 +1428,7 @@
       const res = await fetch('/api/preview/build-all', { method: 'POST' });
       const data = await res.json();
       updateGenAllUI(data);
+      startQueuePolling();
       if (data.running || (data.total > 0 && data.done < data.total)) {
         pollGenerateAll();
       }
