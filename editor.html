@@ -641,8 +641,9 @@
       const data = await res.json();
       const clipPath = data.clip;
       const clipName = clipPath.split('/').pop();
+      const clipFolder = clipPath.split('/').slice(0, -1).join('/') || '/';
       const link = document.getElementById('clipLink');
-      link.href = '/?path=' + encodeURIComponent(clipPath.split('/').slice(0, -1).join('/'));
+      link.href = '/?path=' + encodeURIComponent(clipFolder);
       link.textContent = clipName;
       document.getElementById('successBanner').style.display = 'flex';
     } catch(e) {

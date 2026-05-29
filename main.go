@@ -28,7 +28,30 @@ var (
 	port      = flag.Int("port", 2354, "Port to listen on")
 	videoRoot = flag.String("dir", "./videos", "Root folder with video files")
 	cacheRoot = flag.String("cache", "./thumbcache", "Directory for thumbnail sprite cache")
+	clipsRoot = flag.String("clips", "./clips", "Directory where clips are saved")
 )
+
+// clipsSentinel is the virtual folder name shown in the browser.
+const clipsSentinel = "CLIPS"
+
+// splitAtClips detects a CLIPS sentinel in the path.
+// "/foo/CLIPS"         → realDir="/foo", rest="",        isClips=true
+// "/foo/CLIPS/f.mp4"  → realDir="/foo", rest="f.mp4",   isClips=true
+// "/foo/bar"           → "", "", false
+func splitAtClips(p string) (realDir, rest string, isClips bool) {
+	clean := filepath.ToSlash(filepath.Clean("/" + p))
+	parts := strings.Split(clean, "/") // parts[0] == ""
+	for i, part := range parts {
+		if part == clipsSentinel {
+			dir := strings.Join(parts[:i], "/")
+			if dir == "" {
+				dir = "/"
+			}
+			return dir, strings.Join(parts[i+1:], "/"), true
+		}
+	}
+	return "", "", false
+}
 
 var videoExts = map[string]bool{
 	".mp4": true, ".mkv": true, ".webm": true,
@@ -151,10 +174,46 @@ type Entry struct {
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
-	rel := r.URL.Query().Get("path")
-	rel = filepath.Clean("/" + rel)
-	abs := filepath.Join(*videoRoot, rel)
+	raw := r.URL.Query().Get("path")
+	w.Header().Set("Content-Type", "application/json")
 
+	// Virtual CLIPS folder
+	if realDir, _, isClips := splitAtClips(raw); isClips {
+		clipsDir := filepath.Join(*clipsRoot, filepath.Clean("/"+realDir))
+		if !strings.HasPrefix(clipsDir, filepath.Clean(*clipsRoot)) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		entries, err := os.ReadDir(clipsDir)
+		if err != nil {
+			json.NewEncoder(w).Encode([]Entry{})
+			return
+		}
+		var result []Entry
+		for _, e := range entries {
+			if e.IsDir() || !videoExts[strings.ToLower(filepath.Ext(e.Name()))] {
+				continue
+			}
+			info, _ := e.Info()
+			absPath := filepath.Join(clipsDir, e.Name())
+			virtPath := filepath.ToSlash(filepath.Join(realDir, clipsSentinel, e.Name()))
+			entry := Entry{Name: e.Name(), Path: virtPath, VMPath: absPath}
+			if info != nil {
+				entry.Size = info.Size()
+				entry.ModTime = info.ModTime().Format(time.RFC3339)
+			}
+			result = append(result, entry)
+		}
+		sort.Slice(result, func(i, j int) bool {
+			return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
+		})
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// Normal directory
+	rel := filepath.Clean("/" + raw)
+	abs := filepath.Join(*videoRoot, rel)
 	if !strings.HasPrefix(abs, filepath.Clean(*videoRoot)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -191,6 +250,22 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		result = append(result, entry)
 	}
 
+	// Inject virtual CLIPS folder if clips exist for this directory
+	clipsDir := filepath.Join(*clipsRoot, rel)
+	if dirInfo, err := os.Stat(clipsDir); err == nil && dirInfo.IsDir() {
+		clipsEntries, _ := os.ReadDir(clipsDir)
+		for _, e := range clipsEntries {
+			if !e.IsDir() && videoExts[strings.ToLower(filepath.Ext(e.Name()))] {
+				result = append(result, Entry{
+					Name:  clipsSentinel,
+					Path:  filepath.ToSlash(filepath.Join(rel, clipsSentinel)),
+					IsDir: true,
+				})
+				break
+			}
+		}
+	}
+
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].IsDir != result[j].IsDir {
 			return result[i].IsDir
@@ -198,7 +273,6 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
 	})
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }
 
@@ -507,13 +581,18 @@ func spriteProgressHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func nextClipPath(src string) string {
-	dir := filepath.Dir(src)
+// nextClipPath returns the physical save path and the virtual browser path for the next clip.
+func nextClipPath(src string) (physical, virtual string) {
+	rel, _ := filepath.Rel(*videoRoot, src)
+	relDir := filepath.Dir(rel)
 	ext := filepath.Ext(src)
 	base := strings.TrimSuffix(filepath.Base(src), ext)
 	re := regexp.MustCompile("^" + regexp.QuoteMeta(base) + `_clip(\d+)` + regexp.QuoteMeta(ext) + "$")
 
-	entries, _ := os.ReadDir(dir)
+	clipsDir := filepath.Join(*clipsRoot, relDir)
+	os.MkdirAll(clipsDir, 0755)
+
+	entries, _ := os.ReadDir(clipsDir)
 	max := 0
 	for _, e := range entries {
 		if m := re.FindStringSubmatch(e.Name()); m != nil {
@@ -522,7 +601,10 @@ func nextClipPath(src string) string {
 			}
 		}
 	}
-	return filepath.Join(dir, fmt.Sprintf("%s_clip%02d%s", base, max+1, ext))
+	fname := fmt.Sprintf("%s_clip%02d%s", base, max+1, ext)
+	physical = filepath.Join(clipsDir, fname)
+	virtual = filepath.ToSlash(filepath.Join("/", relDir, clipsSentinel, fname))
+	return
 }
 
 // --- Clip editor handlers ---
@@ -625,12 +707,10 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := nextClipPath(src)
+	physOut, virtOut := nextClipPath(src)
 	dur := req.End - req.Start
 
-	// ffmpeg (snap-confined) cannot write to the mounted video directory,
-	// so write to /tmp then copy with Go which runs as the ubuntu user.
-	tmpFile, err := os.CreateTemp("", "vbclip_*"+filepath.Ext(out))
+	tmpFile, err := os.CreateTemp("", "vbclip_*"+filepath.Ext(physOut))
 	if err != nil {
 		http.Error(w, "failed to create temp file: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -652,15 +732,14 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := moveFile(tmpPath, out); err != nil {
+	if err := moveFile(tmpPath, physOut); err != nil {
 		log.Printf("move clip failed: %v", err)
 		http.Error(w, "failed to save clip: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	rel, _ := filepath.Rel(*videoRoot, out)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"clip": "/" + filepath.ToSlash(rel)})
+	json.NewEncoder(w).Encode(map[string]string{"clip": virtOut})
 }
 
 func main() {
@@ -685,6 +764,16 @@ func main() {
 		log.Fatalf("Cannot create cache directory %s: %v", *cacheRoot, err)
 	}
 	log.Printf("Thumbnail cache: %s", *cacheRoot)
+
+	clipsAbs, err := filepath.Abs(*clipsRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	*clipsRoot = clipsAbs
+	if err := os.MkdirAll(*clipsRoot, 0755); err != nil {
+		log.Fatalf("Cannot create clips directory %s: %v", *clipsRoot, err)
+	}
+	log.Printf("Clips directory: %s", *clipsRoot)
 
 	ffmpegBin = findBin("ffmpeg")
 	ffprobeBin = findBin("ffprobe", "ffmpeg.ffprobe")
@@ -732,6 +821,15 @@ func main() {
 
 	http.HandleFunc("/files/", func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, "/files")
+		if realDir, filename, isClips := splitAtClips(rel); isClips {
+			absPath := filepath.Join(*clipsRoot, filepath.Clean("/"+realDir), filename)
+			if !strings.HasPrefix(absPath, filepath.Clean(*clipsRoot)) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			http.ServeFile(w, r, absPath)
+			return
+		}
 		rel = filepath.Clean("/" + rel)
 		absPath := filepath.Join(*videoRoot, rel)
 		if !strings.HasPrefix(absPath, filepath.Clean(*videoRoot)) {
