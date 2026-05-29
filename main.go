@@ -710,31 +710,18 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 	physOut, virtOut := nextClipPath(src)
 	dur := req.End - req.Start
 
-	tmpFile, err := os.CreateTemp("", "vbclip_*"+filepath.Ext(physOut))
-	if err != nil {
-		http.Error(w, "failed to create temp file: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
-
+	// Write directly to the clips dir (under $HOME) — snap ffmpeg can access
+	// home paths just fine, same as it does for sprite sheet generation.
 	cmd := exec.Command(ffmpegBin,
 		"-ss", fmt.Sprintf("%.3f", req.Start),
 		"-i", src,
 		"-t", fmt.Sprintf("%.3f", dur),
 		"-c", "copy",
-		"-y", tmpPath,
+		"-y", physOut,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("ffmpeg clip failed: %v\n%s", err, output)
 		http.Error(w, "ffmpeg failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := moveFile(tmpPath, physOut); err != nil {
-		log.Printf("move clip failed: %v", err)
-		http.Error(w, "failed to save clip: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
