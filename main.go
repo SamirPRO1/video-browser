@@ -283,13 +283,23 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteHandler(w http.ResponseWriter, r *http.Request) {
-	rel := r.URL.Query().Get("path")
-	rel = filepath.Clean("/" + rel)
-	abs := filepath.Join(*videoRoot, rel)
+	raw := r.URL.Query().Get("path")
 
-	if !strings.HasPrefix(abs, filepath.Clean(*videoRoot)) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	var abs string
+	if realDir, filename, isClips := splitAtClips(raw); isClips {
+		// Clip stored in clipsRoot
+		abs = filepath.Join(*clipsRoot, filepath.Clean("/"+realDir), filename)
+		if !strings.HasPrefix(abs, filepath.Clean(*clipsRoot)) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	} else {
+		rel := filepath.Clean("/" + raw)
+		abs = filepath.Join(*videoRoot, rel)
+		if !strings.HasPrefix(abs, filepath.Clean(*videoRoot)) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	info, err := os.Stat(abs)
