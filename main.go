@@ -173,6 +173,7 @@ type Entry struct {
 	ModTime    string `json:"modTime,omitempty"`
 	HasSprites bool   `json:"hasSprites,omitempty"`
 	HasPreview bool   `json:"hasPreview,omitempty"`
+	Broken     bool   `json:"broken,omitempty"`
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +252,9 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if _, err := os.Stat(filepath.Join(cacheDir, "preview.jpg")); err == nil {
 				entry.HasPreview = true
+			}
+			if _, err := os.Stat(filepath.Join(cacheDir, "broken")); err == nil {
+				entry.Broken = true
 			}
 		}
 		result = append(result, entry)
@@ -390,15 +394,43 @@ func spriteVF(cfg spriteConfig) string {
 	)
 }
 
+var brokenIndicators = []string{
+	"moov atom not found",
+	"Invalid data found when processing input",
+	"no such file",
+	"Permission denied",
+}
+
+func writeBrokenMarker(src, msg string) {
+	cacheDir := thumbCacheDir(src)
+	os.MkdirAll(cacheDir, 0755)
+	os.WriteFile(filepath.Join(cacheDir, "broken"), []byte(msg), 0644)
+}
+
+func clearBrokenMarker(src string) {
+	os.Remove(filepath.Join(thumbCacheDir(src), "broken"))
+}
+
+func isBroken(absPath string) bool {
+	_, err := os.Stat(filepath.Join(thumbCacheDir(absPath), "broken"))
+	return err == nil
+}
+
 func probeDuration(src string) (float64, error) {
 	cmd := exec.Command(ffprobeBin,
 		"-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("ffprobe: %w — %s", err, strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(out))
+		for _, ind := range brokenIndicators {
+			if strings.Contains(strings.ToLower(msg), strings.ToLower(ind)) {
+				writeBrokenMarker(src, msg)
+				break
+			}
+		}
+		return 0, fmt.Errorf("ffprobe: %w — %s", err, msg)
 	}
-	// Output may contain extra lines (warnings); grab the first numeric line.
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if d, err := strconv.ParseFloat(line, 64); err == nil && d > 0 {
@@ -1208,6 +1240,49 @@ func spriteHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, imgPath)
 }
 
+func recoverHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+
+	ext := filepath.Ext(src)
+	base := strings.TrimSuffix(src, ext)
+	out := base + "_recovered" + ext
+
+	// Try escalating recovery strategies.
+	attempts := [][]string{
+		{"-i", src, "-c", "copy", "-y", out},
+		{"-fflags", "+genpts+discardcorrupt", "-i", src, "-c", "copy", "-y", out},
+		{"-fflags", "+genpts+discardcorrupt+igndts+ignidx", "-err_detect", "ignore_err", "-i", src, "-c", "copy", "-y", out},
+	}
+
+	var lastErr string
+	for _, args := range attempts {
+		cmd := exec.Command(ffmpegBin, args...)
+		if output, err := cmd.CombinedOutput(); err == nil {
+			// Verify the recovered file has a valid duration
+			if _, err := probeDuration(out); err == nil {
+				clearBrokenMarker(src)
+				rel, _ := filepath.Rel(*videoRoot, out)
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"recovered": "/" + filepath.ToSlash(rel)})
+				return
+			}
+			os.Remove(out)
+		} else {
+			lastErr = strings.TrimSpace(string(output))
+		}
+	}
+
+	http.Error(w, "recovery failed: "+lastErr, http.StatusInternalServerError)
+}
+
 // moveFile tries os.Rename first (fast, same-fs), falls back to copy+delete.
 func moveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
@@ -1345,6 +1420,7 @@ func main() {
 		}
 	}))
 	http.HandleFunc("/api/sprite/build-folder", requireAuth(spriteBuildFolderHandler))
+	http.HandleFunc("/api/recover", requireAuth(recoverHandler))
 	http.HandleFunc("/api/queue", requireAuth(unifiedQueueHandler))
 	http.HandleFunc("/api/sprite/queue", requireAuth(spriteQueueHandler))
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))

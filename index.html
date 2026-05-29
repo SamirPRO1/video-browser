@@ -378,6 +378,23 @@
   .action-btn.sprites-ready { color: #1e8e3e; }
   .action-btn.sprites-ready:hover { background: #e6f4ea; color: #137333; }
 
+  .broken-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #e8453c;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-left: -4px;
+    margin-right: 4px;
+    cursor: default;
+  }
+
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -788,6 +805,11 @@
     Copy VM path
   </button>
   <div class="ctx-sep"></div>
+  <button class="ctx-item" id="ctxRecoverBtn" onclick="ctxRecover()" style="display:none">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+    Recover File
+  </button>
+  <div class="ctx-sep"></div>
   <button class="ctx-item danger" onclick="ctxDelete()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
     Delete
@@ -908,7 +930,7 @@
       const safeName = escapeHtml(entry.name);
       const fileUrl = `/files${encodedFilePath(entry.path)}`;
       const potUrl = `potplayer://${window.location.origin}${fileUrl}`;
-      const ctx = attrJson({ path: entry.path, name: entry.name, vmPath: entry.vmPath || '' });
+      const ctx = attrJson({ path: entry.path, name: entry.name, vmPath: entry.vmPath || '', broken: entry.broken || false });
 
       if (entry.isDir) {
         html += `<div class="file-row" onclick="navigate(${attrJson(entry.path)})">
@@ -918,8 +940,9 @@
           <div></div>
         </div>`;
       } else {
-        html += `<div class="file-row" data-path="${escapeHtml(entry.path)}" data-name="${safeName}" data-has-preview="${entry.hasPreview}" onclick="openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})">
-          <div class="file-name">${videoIcon()}<span>${safeName}</span></div>
+        const brokenBadge = entry.broken ? `<span class="broken-badge" title="Corrupt file — moov atom not found">!</span>` : '';
+        html += `<div class="file-row" data-path="${escapeHtml(entry.path)}" data-name="${safeName}" data-has-preview="${entry.hasPreview && !entry.broken}" data-broken="${entry.broken}" onclick="${entry.broken ? 'void(0)' : `openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})`}">
+          <div class="file-name">${videoIcon()}${brokenBadge}<span style="${entry.broken ? 'color:var(--text-secondary);text-decoration:line-through' : ''}">${safeName}</span></div>
           <div class="file-date">${formatDate(entry.modTime)}</div>
           <div class="file-size">${formatSize(entry.size)}</div>
           <div class="row-actions">
@@ -950,6 +973,7 @@
     event.stopPropagation();
     ctxEntry = entry;
     const menu = document.getElementById('ctxMenu');
+    document.getElementById('ctxRecoverBtn').style.display = entry.broken ? 'flex' : 'none';
     menu.classList.add('open');
     const rect = event.currentTarget.getBoundingClientRect();
     const menuH = menu.offsetHeight;
@@ -1089,12 +1113,9 @@
   // Event delegation on file list
   document.getElementById('fileList').addEventListener('mousemove', e => {
     const row = e.target.closest('.file-row[data-path]');
-    if (!row) { hidePreview(); return; }
+    if (!row || row.dataset.broken === 'true') { hidePreview(); return; }
     clearTimeout(previewHideTimer);
-    const path = row.dataset.path;
-    const name = row.dataset.name;
-    const hasPreview = row.dataset.hasPreview === 'true';
-    showPreviewFor(path, name, hasPreview, e);
+    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', e);
   });
 
   document.getElementById('fileList').addEventListener('mouseleave', () => hidePreview());
@@ -1317,6 +1338,27 @@
     pollQueue();
   })();
 
+
+  async function ctxRecover() {
+    if (!ctxEntry) return;
+    const { path, name } = ctxEntry;
+    closeMenu();
+    showToast(`Recovering "${name}"…`);
+    try {
+      const res = await fetch(`/api/recover?path=${encodeURIComponent(path)}`, { method: 'POST' });
+      if (!res.ok) {
+        const msg = await res.text();
+        showToast('Recovery failed: ' + msg.slice(0, 80));
+        return;
+      }
+      const data = await res.json();
+      const recovered = data.recovered.split('/').pop();
+      showToast(`Recovered as "${recovered}" ✓`);
+      loadDirectory(currentPath);
+    } catch(e) {
+      showToast('Recovery error: ' + e.message);
+    }
+  }
 
   function ctxCopyUrl() {
     if (!ctxEntry) return;
