@@ -1,0 +1,4 @@
+find /mnt/pstreamrec/records -name "*.mp4" | while read f; do
+  tmp="${f%.mp4}_faststart.mp4"
+  ffmpeg -i "$f" -c copy -movflags faststart "$tmp" && mv "$tmp" "$f"
+done

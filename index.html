@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Browser</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #e0e0e0;
+    --text: #202124;
+    --text-secondary: #5f6368;
+    --accent: #1a73e8;
+    --accent-hover: #1557b0;
+    --hover-bg: #f1f3f4;
+    --row-height: 44px;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  }
+
+  body {
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Top bar */
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+    box-shadow: var(--shadow);
+    z-index: 10;
+  }
+  .topbar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    flex: 1;
+  }
+  .topbar-logo svg { color: var(--accent); }
+
+  .topbar-logout {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+  }
+  .topbar-logout:hover { background: var(--hover-bg); color: var(--text); }
+
+  /* Layout */
+  .layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 256px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 0 24px 24px 0;
+    margin-right: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+  .sidebar-item:hover { background: var(--hover-bg); }
+  .sidebar-item.active { background: #e8f0fe; color: var(--accent); }
+  .sidebar-item svg { opacity: 0.7; }
+
+  /* Main content */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Breadcrumb */
+  .breadcrumb {
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .breadcrumb-item {
+    color: var(--accent);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .breadcrumb-item:hover { background: var(--hover-bg); }
+  .breadcrumb-item.current {
+    color: var(--text);
+    cursor: default;
+    font-weight: 500;
+  }
+  .breadcrumb-item.current:hover { background: none; }
+  .breadcrumb-sep { color: var(--text-secondary); user-select: none; }
+
+  /* File list header */
+  .list-header {
+    display: grid;
+    grid-template-columns: 1fr 140px 100px 68px;
+    padding: 0 24px;
+    height: 36px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+
+  /* File list */
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .file-row {
+    display: grid;
+    grid-template-columns: 1fr 140px 100px 68px;
+    padding: 0 24px;
+    height: var(--row-height);
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 14px;
+  }
+  .file-row:hover { background: var(--hover-bg); }
+  .file-row:active { background: #e8f0fe; }
+  .file-name {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+  }
+  .file-name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-icon { flex-shrink: 0; }
+  .file-size { color: var(--text-secondary); font-size: 13px; }
+  .file-date { color: var(--text-secondary); font-size: 13px; }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .file-row:hover .row-actions { opacity: 1; }
+  .copy-btn, .potplayer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+    text-decoration: none;
+  }
+  .copy-btn:hover, .potplayer-btn:hover { background: var(--border); color: var(--accent); }
+  .copy-btn.copied { color: #1e8e3e; }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    height: 200px;
+    color: var(--text-secondary);
+  }
+
+  /* Video player overlay */
+  .player-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .player-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .player-container {
+    width: 100%;
+    max-width: 1100px;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    transform: scale(0.96);
+    transition: transform 0.2s;
+  }
+  .player-overlay.open .player-container { transform: scale(1); }
+
+  .player-topbar {
+    background: #1a1a1a;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .player-title {
+    color: #fff;
+    font-size: 15px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-close {
+    background: none;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s;
+    flex-shrink: 0;
+  }
+  .player-close:hover { color: #fff; }
+
+  video {
+    width: 100%;
+    display: block;
+    max-height: 75vh;
+    background: #000;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #bdc1c6; }
+
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 120px; color: var(--text-secondary); gap: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  video {
+    width: 100%;
+    display: block;
+    max-height: 75vh;
+    background: #000;
+  }
+
+  /* Player error banner */
+  .player-error {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    background: #3c1010;
+    color: #f28b82;
+    padding: 14px 20px;
+    font-size: 14px;
+  }
+  .player-error svg { flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo" onclick="navigate('/')">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
+    </svg>
+    Video Browser
+  </div>
+  <a href="/logout" class="topbar-logout">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+    </svg>
+    Sign out
+  </a>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-item active" onclick="navigate('/')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+      </svg>
+      All Videos
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="list-header">
+      <div>Name</div>
+      <div>Modified</div>
+      <div>Size</div>
+      <div></div>
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+</div>
+
+<!-- Video player -->
+<div class="player-overlay" id="playerOverlay">
+  <div class="player-container">
+    <div class="player-topbar">
+      <div class="player-title" id="playerTitle"></div>
+      <button class="player-close" onclick="closePlayer()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+        </svg>
+      </button>
+    </div>
+    <div class="player-error" id="playerError">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+      </svg>
+      <span id="playerErrorMsg"></span>
+    </div>
+    <video id="videoEl" controls autoplay></video>
+  </div>
+</div>
+
+<script>
+  let currentPath = '/';
+
+  function navigate(path) {
+    currentPath = path;
+    loadDirectory(path);
+    updateBreadcrumb(path);
+  }
+
+  function updateBreadcrumb(path) {
+    const bc = document.getElementById('breadcrumb');
+    const parts = path.split('/').filter(Boolean);
+    let html = `<span class="breadcrumb-item ${parts.length === 0 ? 'current' : ''}" onclick="navigate('/')">My Videos</span>`;
+    let built = '';
+    parts.forEach((part, i) => {
+      built += '/' + part;
+      const isCurrent = i === parts.length - 1;
+      const captured = built;
+      html += `<span class="breadcrumb-sep">›</span>`;
+      html += `<span class="breadcrumb-item ${isCurrent ? 'current' : ''}" onclick="navigate('${captured}')">${escapeHtml(part)}</span>`;
+    });
+    bc.innerHTML = html;
+  }
+
+  async function loadDirectory(path) {
+    const list = document.getElementById('fileList');
+    list.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    try {
+      const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const entries = await res.json();
+      renderList(entries, path);
+    } catch(e) {
+      list.innerHTML = '<div class="empty-state">Failed to load directory.</div>';
+    }
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+    return (bytes/1024/1024/1024).toFixed(2) + ' GB';
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // JSON.stringify inside a double-quoted HTML attribute needs " escaped as &quot;
+  function attrJson(val) {
+    return JSON.stringify(val).replace(/"/g, '&quot;');
+  }
+
+  function folderIcon() {
+    return `<svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="#5f6368">
+      <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+    </svg>`;
+  }
+
+  function videoIcon() {
+    return `<svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="#1a73e8">
+      <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+    </svg>`;
+  }
+
+  function renderList(entries, path) {
+    const list = document.getElementById('fileList');
+    if (!entries || entries.length === 0) {
+      list.innerHTML = '<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="#dadce0"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg><span>This folder is empty</span></div>';
+      return;
+    }
+
+    let html = '';
+    if (path !== '/' && path !== '') {
+      const parent = path.split('/').slice(0, -1).join('/') || '/';
+      html += `<div class="file-row" onclick="navigate('${parent}')">
+        <div class="file-name">
+          <svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="#5f6368"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          <span style="color:var(--text-secondary)">.. (go up)</span>
+        </div>
+        <div></div><div></div><div></div>
+      </div>`;
+    }
+
+    entries.forEach(entry => {
+      const safeName = escapeHtml(entry.name);
+      const safePath = escapeHtml(entry.path);
+      if (entry.isDir) {
+        html += `<div class="file-row" onclick="navigate(${attrJson(entry.path)})">
+          <div class="file-name">${folderIcon()}<span>${safeName}</span></div>
+          <div class="file-date">${formatDate(entry.modTime)}</div>
+          <div class="file-size">—</div>
+          <div></div>
+        </div>`;
+      } else {
+        html += `<div class="file-row" onclick="openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})">
+          <div class="file-name">${videoIcon()}<span>${safeName}</span></div>
+          <div class="file-date">${formatDate(entry.modTime)}</div>
+          <div class="file-size">${formatSize(entry.size)}</div>
+          <div class="row-actions">
+            <button class="copy-btn" title="Copy URL" onclick="copyUrl(event, ${attrJson(entry.path)})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+              </svg>
+            </button>
+            <a class="potplayer-btn" title="Open in PotPlayer" href="potplayer://${window.location.origin}/files${entry.path.split('/').map(encodeURIComponent).join('/')}" onclick="event.stopPropagation()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </a>
+          </div>
+        </div>`;
+      }
+    });
+
+    list.innerHTML = html;
+  }
+
+  let shakaPlayer = null;
+
+  async function openPlayer(path, name) {
+    document.getElementById('playerTitle').textContent = name;
+    document.getElementById('playerError').style.display = 'none';
+    document.getElementById('playerOverlay').classList.add('open');
+    if (!shakaPlayer) {
+      showPlayerError({ message: 'Player still loading, please try again.' });
+      return;
+    }
+    try {
+      await shakaPlayer.load(`/files${path}`);
+      document.getElementById('videoEl').play().catch(() => {});
+    } catch (e) {
+      if (e && e.code === 7000) return; // LOAD_INTERRUPTED: user closed before load finished, not an error
+      showPlayerError(e);
+    }
+  }
+
+  async function closePlayer() {
+    document.getElementById('playerOverlay').classList.remove('open');
+    document.getElementById('videoEl').pause();
+    if (shakaPlayer) await shakaPlayer.unload();
+  }
+
+  function copyUrl(event, path) {
+    event.stopPropagation();
+    const url = `${window.location.origin}/files${path}`;
+    const iconCopy = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`;
+    const iconDone = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>`;
+    const btn = event.currentTarget;
+
+    function confirm() {
+      btn.classList.add('copied');
+      btn.innerHTML = iconDone;
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = iconCopy; }, 2000);
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(confirm);
+    } else {
+      // Fallback for HTTP (non-secure context)
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      confirm();
+    }
+  }
+
+  function showPlayerError(e) {
+    const bar = document.getElementById('playerError');
+    const msg = document.getElementById('playerErrorMsg');
+    if (e && e.code) {
+      msg.textContent = `Playback error (code ${e.code}): ${e.message || 'unsupported format or network issue'}`;
+    } else {
+      msg.textContent = e ? (e.message || String(e)) : 'Unknown error';
+    }
+    bar.style.display = 'flex';
+  }
+
+  document.getElementById('playerOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closePlayer();
+  });
+
+  document.addEventListener('keydown', e => {
+    const video = document.getElementById('videoEl');
+    const open = document.getElementById('playerOverlay').classList.contains('open');
+    if (!open) return;
+    switch (e.key) {
+      case 'Escape':                       closePlayer(); break;
+      case 'ArrowRight': e.preventDefault(); video.currentTime += 5;  break;
+      case 'ArrowLeft':  e.preventDefault(); video.currentTime -= 5;  break;
+      case 'ArrowUp':    e.preventDefault(); video.volume = Math.min(1, video.volume + 0.1); break;
+      case 'ArrowDown':  e.preventDefault(); video.volume = Math.max(0, video.volume - 0.1); break;
+      case ' ':          e.preventDefault(); video.paused ? video.play() : video.pause(); break;
+    }
+  });
+
+  navigate('/');
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/shaka-player/dist/shaka-player.compiled.js"></script>
+<script>
+  (async () => {
+    shaka.polyfill.installAll();
+    const video = document.getElementById('videoEl');
+    shakaPlayer = new shaka.Player();
+    await shakaPlayer.attach(video);
+    shakaPlayer.addEventListener('error', e => {
+      if (e.detail && e.detail.code !== 7000) showPlayerError(e.detail);
+    });
+  })();
+</script>
+</body>
+</html>

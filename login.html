@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Browser — Login</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #e0e0e0;
+    --text: #202124;
+    --text-secondary: #5f6368;
+    --accent: #1a73e8;
+    --accent-hover: #1557b0;
+    --error: #d93025;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  }
+
+  body {
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    padding: 48px 40px 40px;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+  }
+  .logo svg { color: var(--accent); }
+  .logo-text {
+    font-size: 22px;
+    font-weight: 500;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+
+  form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  input[type="password"] {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 15px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    background: var(--bg);
+  }
+  input[type="password"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(26,115,232,0.15);
+    background: var(--surface);
+  }
+
+  .error-msg {
+    color: var(--error);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #fce8e6;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+  }
+
+  button[type="submit"] {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    letter-spacing: 0.2px;
+  }
+  button[type="submit"]:hover { background: var(--accent-hover); }
+  button[type="submit"]:active { background: #1248a0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
+    </svg>
+    <span class="logo-text">Video Browser</span>
+  </div>
+
+  <h1>Sign in to continue</h1>
+
+  <form method="POST" action="/login">
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autofocus placeholder="Enter password" required>
+    </div>
+
+    <!-- Show error if ?error=1 -->
+    <div class="error-msg" id="errorMsg" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+      </svg>
+      Incorrect password. Please try again.
+    </div>
+
+    <button type="submit">Sign In</button>
+  </form>
+</div>
+
+<script>
+  if (window.location.search.includes('error=1')) {
+    document.getElementById('errorMsg').style.display = 'flex';
+  }
+</script>
+</body>
+</html>
