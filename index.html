@@ -365,6 +365,78 @@
     margin: 4px 0;
   }
 
+  /* Hover preview */
+  .hover-preview {
+    position: fixed;
+    z-index: 160;
+    width: 320px;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  .hover-preview.visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .hover-preview-img {
+    width: 320px;
+    height: 180px;
+    background-color: #111;
+    background-repeat: no-repeat;
+    background-size: 320px 27000px; /* 150 frames × 180px */
+  }
+  @keyframes preview-roll {
+    to { background-position-y: -27000px; }
+  }
+  .hover-preview-img.rolling {
+    animation: preview-roll 10s steps(150) infinite;
+  }
+  .hover-preview-bar {
+    background: #1a1a1a;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hover-preview-name {
+    font-size: 12px;
+    color: #ccc;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hover-preview-loading {
+    width: 320px;
+    height: 180px;
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #666;
+    font-size: 12px;
+  }
+  .hover-preview-prog {
+    width: 180px;
+    height: 3px;
+    background: #333;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .hover-preview-prog-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s;
+  }
+
   /* Sprite build notifications */
   .build-tray {
     position: fixed;
@@ -539,6 +611,14 @@
   </button>
 </div>
 
+<!-- Hover video preview -->
+<div class="hover-preview" id="hoverPreview">
+  <div class="hover-preview-img" id="hoverPreviewImg"></div>
+  <div class="hover-preview-bar">
+    <div class="hover-preview-name" id="hoverPreviewName"></div>
+  </div>
+</div>
+
 <!-- Sprite build notification tray -->
 <div class="build-tray" id="buildTray"></div>
 
@@ -655,7 +735,7 @@
           <div></div>
         </div>`;
       } else {
-        html += `<div class="file-row" onclick="openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})">
+        html += `<div class="file-row" data-path="${escapeHtml(entry.path)}" data-name="${safeName}" data-has-preview="${entry.hasPreview}" onclick="openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})">
           <div class="file-name">${videoIcon()}<span>${safeName}</span></div>
           <div class="file-date">${formatDate(entry.modTime)}</div>
           <div class="file-size">${formatSize(entry.size)}</div>
@@ -710,6 +790,138 @@
     closeMenu();
     window.location.href = '/editor?path=' + encodeURIComponent(path);
   }
+
+  // ── Hover preview ────────────────────────────────────────────────
+  const preview = document.getElementById('hoverPreview');
+  const previewImg = document.getElementById('hoverPreviewImg');
+  const previewName = document.getElementById('hoverPreviewName');
+
+  let previewCurrentPath = null;
+  let previewPollTimer = null;
+  let previewHideTimer = null;
+  const isMobile = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  function positionPreview(e) {
+    const pad = 12;
+    const pw = 320, ph = 210;
+    let left = e.clientX + pad;
+    let top  = e.clientY - ph / 2;
+    if (left + pw > window.innerWidth  - pad) left = e.clientX - pw - pad;
+    if (top  + ph > window.innerHeight - pad) top  = window.innerHeight - ph - pad;
+    if (top < pad) top = pad;
+    preview.style.left = left + 'px';
+    preview.style.top  = top  + 'px';
+  }
+
+  function showPreviewFor(path, name, hasPreview, e) {
+    if (previewCurrentPath === path) {
+      if (e) positionPreview(e);
+      return;
+    }
+    clearTimeout(previewHideTimer);
+    clearInterval(previewPollTimer);
+    previewCurrentPath = path;
+    previewName.textContent = name;
+    previewImg.classList.remove('rolling');
+    previewImg.style.backgroundImage = '';
+
+    if (e) positionPreview(e);
+    preview.classList.add('visible');
+
+    if (hasPreview) {
+      loadPreviewImage(path);
+    } else {
+      showPreviewLoading(0);
+      triggerPreviewBuild(path);
+    }
+  }
+
+  function loadPreviewImage(path) {
+    const url = `/api/preview?path=${encodeURIComponent(path)}`;
+    // Preload then display
+    const img = new Image();
+    img.onload = () => {
+      if (previewCurrentPath !== path) return;
+      previewImg.innerHTML = '';
+      previewImg.style.backgroundImage = `url('${url}')`;
+      previewImg.classList.add('rolling');
+    };
+    img.src = url;
+  }
+
+  function showPreviewLoading(pct) {
+    previewImg.classList.remove('rolling');
+    previewImg.style.backgroundImage = '';
+    previewImg.innerHTML = `
+      <div class="hover-preview-loading">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#444"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14z"/></svg>
+        <div>Generating preview… ${pct}%</div>
+        <div class="hover-preview-prog"><div class="hover-preview-prog-fill" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  async function triggerPreviewBuild(path) {
+    try {
+      await fetch(`/api/preview/build?path=${encodeURIComponent(path)}`, { method: 'POST' });
+    } catch(e) { return; }
+
+    previewPollTimer = setInterval(async () => {
+      if (previewCurrentPath !== path) { clearInterval(previewPollTimer); return; }
+      try {
+        const res = await fetch(`/api/preview/progress?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (previewCurrentPath !== path) { clearInterval(previewPollTimer); return; }
+        if (data.done && !data.err) {
+          clearInterval(previewPollTimer);
+          loadPreviewImage(path);
+        } else if (data.done && data.err) {
+          clearInterval(previewPollTimer);
+          previewImg.innerHTML = `<div class="hover-preview-loading" style="color:#f28b82">${escapeHtml(data.err)}</div>`;
+        } else {
+          showPreviewLoading(data.percent || 0);
+        }
+      } catch(e) { clearInterval(previewPollTimer); }
+    }, 1500);
+  }
+
+  function hidePreview() {
+    previewHideTimer = setTimeout(() => {
+      preview.classList.remove('visible');
+      previewCurrentPath = null;
+      previewImg.classList.remove('rolling');
+      clearInterval(previewPollTimer);
+    }, 120);
+  }
+
+  // Event delegation on file list
+  document.getElementById('fileList').addEventListener('mousemove', e => {
+    const row = e.target.closest('.file-row[data-path]');
+    if (!row) { hidePreview(); return; }
+    clearTimeout(previewHideTimer);
+    const path = row.dataset.path;
+    const name = row.dataset.name;
+    const hasPreview = row.dataset.hasPreview === 'true';
+    showPreviewFor(path, name, hasPreview, e);
+  });
+
+  document.getElementById('fileList').addEventListener('mouseleave', () => hidePreview());
+
+  // Mobile: touchstart shows preview, touchend hides after delay
+  document.getElementById('fileList').addEventListener('touchstart', e => {
+    const row = e.target.closest('.file-row[data-path]');
+    if (!row) return;
+    const path = row.dataset.path;
+    const name = row.dataset.name;
+    const hasPreview = row.dataset.hasPreview === 'true';
+    // Position near center of screen on mobile
+    const rect = row.getBoundingClientRect();
+    const fakeEvt = { clientX: window.innerWidth / 2 - 160, clientY: rect.top - 210 };
+    showPreviewFor(path, name, hasPreview, fakeEvt);
+  }, { passive: true });
+
+  document.getElementById('fileList').addEventListener('touchend', () => {
+    setTimeout(() => hidePreview(), 2000);
+  }, { passive: true });
 
   // ── Sprite build ──────────────────────────────────────────────────
   const buildPollers = {}; // relPath → intervalId

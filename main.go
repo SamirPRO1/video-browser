@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -171,6 +172,7 @@ type Entry struct {
 	Size       int64  `json:"size,omitempty"`
 	ModTime    string `json:"modTime,omitempty"`
 	HasSprites bool   `json:"hasSprites,omitempty"`
+	HasPreview bool   `json:"hasPreview,omitempty"`
 }
 
 func listHandler(w http.ResponseWriter, r *http.Request) {
@@ -243,9 +245,13 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 			entry.ModTime = info.ModTime().Format(time.RFC3339)
 		}
 		if !e.IsDir() {
-			metaPath := filepath.Join(thumbCacheDir(absPath), "meta.json")
-			_, err := os.Stat(metaPath)
-			entry.HasSprites = err == nil
+			cacheDir := thumbCacheDir(absPath)
+			if _, err := os.Stat(filepath.Join(cacheDir, "meta.json")); err == nil {
+				entry.HasSprites = true
+			}
+			if _, err := os.Stat(filepath.Join(cacheDir, "preview.jpg")); err == nil {
+				entry.HasPreview = true
+			}
 		}
 		result = append(result, entry)
 	}
@@ -581,6 +587,185 @@ func spriteProgressHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// --- Preview (hover strip) ---
+
+const (
+	previewFrames = 150
+	previewW      = 320
+	previewH      = 180
+)
+
+type previewJob struct {
+	Percent int    `json:"percent"`
+	Done    bool   `json:"done"`
+	Err     string `json:"err,omitempty"`
+}
+
+var (
+	previewJobs   = map[string]*previewJob{}
+	previewJobsMu sync.Mutex
+)
+
+func getOrCreatePreviewJob(relPath string) (*previewJob, bool) {
+	previewJobsMu.Lock()
+	defer previewJobsMu.Unlock()
+	if j, ok := previewJobs[relPath]; ok {
+		return j, false
+	}
+	j := &previewJob{}
+	previewJobs[relPath] = j
+	return j, true
+}
+
+func generatePreviewAsync(relPath, src string, job *previewJob) {
+	cacheDir := thumbCacheDir(src)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		previewJobsMu.Unlock()
+		return
+	}
+
+	out, err := exec.Command(ffprobeBin,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		src,
+	).Output()
+	if err != nil {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, "ffprobe: "+err.Error()
+		previewJobsMu.Unlock()
+		return
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || duration <= 0 {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, "bad duration"
+		previewJobsMu.Unlock()
+		return
+	}
+
+	// fps=N/D selects exactly N frames spread evenly across D seconds.
+	// tile=1xN stacks them into a single vertical strip.
+	fpsExpr := fmt.Sprintf("%d/%d", previewFrames, int(math.Ceil(duration)))
+	vf := fmt.Sprintf(
+		"fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tile=1x%d",
+		fpsExpr, previewW, previewH, previewW, previewH, previewFrames,
+	)
+	previewPath := filepath.Join(cacheDir, "preview.jpg")
+
+	cmd := exec.Command(ffmpegBin,
+		"-progress", "pipe:1",
+		"-nostats",
+		"-i", src,
+		"-vf", vf,
+		"-frames:v", "1",
+		"-q:v", "4",
+		"-y", previewPath,
+	)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		previewJobsMu.Unlock()
+		return
+	}
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, err.Error()
+		previewJobsMu.Unlock()
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "out_time_ms=") {
+			ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64)
+			if err == nil && duration > 0 && ms > 0 {
+				pct := int(float64(ms) / 1e6 / duration * 100)
+				if pct > 99 {
+					pct = 99
+				}
+				previewJobsMu.Lock()
+				job.Percent = pct
+				previewJobsMu.Unlock()
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		previewJobsMu.Lock()
+		job.Done, job.Err = true, "ffmpeg: "+err.Error()
+		previewJobsMu.Unlock()
+		return
+	}
+
+	previewJobsMu.Lock()
+	job.Percent = 100
+	job.Done = true
+	previewJobsMu.Unlock()
+}
+
+func previewBuildHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	relPath := r.URL.Query().Get("path")
+	src, err := resolveInRoot(*videoRoot, relPath)
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	job, created := getOrCreatePreviewJob(relPath)
+	if created {
+		go generatePreviewAsync(relPath, src, job)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	previewJobsMu.Lock()
+	json.NewEncoder(w).Encode(job)
+	previewJobsMu.Unlock()
+}
+
+func previewProgressHandler(w http.ResponseWriter, r *http.Request) {
+	relPath := r.URL.Query().Get("path")
+	w.Header().Set("Content-Type", "application/json")
+
+	previewJobsMu.Lock()
+	if job, ok := previewJobs[relPath]; ok {
+		json.NewEncoder(w).Encode(job)
+		previewJobsMu.Unlock()
+		return
+	}
+	previewJobsMu.Unlock()
+
+	src, err := resolveInRoot(*videoRoot, relPath)
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	previewPath := filepath.Join(thumbCacheDir(src), "preview.jpg")
+	if _, err := os.Stat(previewPath); err == nil {
+		json.NewEncoder(w).Encode(&previewJob{Percent: 100, Done: true})
+	} else {
+		json.NewEncoder(w).Encode(&previewJob{})
+	}
+}
+
+func previewImageHandler(w http.ResponseWriter, r *http.Request) {
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	imgPath := filepath.Join(thumbCacheDir(src), "preview.jpg")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, imgPath)
+}
+
 // nextClipPath returns the physical save path and the virtual browser path for the next clip.
 func nextClipPath(src string) (physical, virtual string) {
 	rel, _ := filepath.Rel(*videoRoot, src)
@@ -794,6 +979,9 @@ func main() {
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
 	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))
 	http.HandleFunc("/api/sprite", requireAuth(spriteHandler))
+	http.HandleFunc("/api/preview/build", requireAuth(previewBuildHandler))
+	http.HandleFunc("/api/preview/progress", requireAuth(previewProgressHandler))
+	http.HandleFunc("/api/preview", requireAuth(previewImageHandler))
 	http.HandleFunc("/api/clip", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
