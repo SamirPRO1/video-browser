@@ -1080,6 +1080,16 @@ func previewBuildHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
+	// If the file already exists on disk, skip — the in-memory job map may
+	// have expired (Done=true) after a restart or a completed Generate All,
+	// causing stale-listing hovers to re-trigger generation unnecessarily.
+	previewPath := filepath.Join(thumbCacheDir(src), "preview.jpg")
+	if _, err := os.Stat(previewPath); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(&previewJob{Path: relPath, Name: filepath.Base(src), Percent: 100, Done: true})
+		return
+	}
+
 	cfg := previewConfigFromQuery(r.URL.Query())
 	job, created := getOrCreatePreviewJob(relPath, cfg)
 	if created {
