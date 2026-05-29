@@ -526,7 +526,14 @@ func generateSprites(src, cacheDir string, cfg spriteConfig) error {
 		return err
 	}
 	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
-	cmd := exec.Command(ffmpegBin, "-i", src, "-vf", spriteVF(cfg), "-qscale:v", "5", "-y", spritePat)
+	cmd := exec.Command(ffmpegBin,
+		"-skip_frame", "nointra",
+		"-i", src,
+		"-vf", spriteVF(cfg),
+		"-vsync", "vfr",
+		"-qscale:v", "5",
+		"-y", spritePat,
+	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ffmpeg sprites: %w\n%s", err, out)
 	}
@@ -588,9 +595,11 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 
 	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
 	cmd := exec.Command(ffmpegBin,
+		"-skip_frame", "nointra",
 		"-progress", "pipe:1", "-nostats",
 		"-i", src,
 		"-vf", spriteVF(cfg),
+		"-vsync", "vfr",
 		"-qscale:v", "5",
 		"-y", spritePat,
 	)
