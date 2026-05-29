@@ -668,6 +668,31 @@
     </div>
     <div class="sprite-settings" id="previewSettings">
       <div class="settings-row">
+        <label>Resolution</label>
+        <select id="cfgPreviewRes" onchange="savePreviewSettings()">
+          <option value="160x90">160×90 (fast)</option>
+          <option value="320x180" selected>320×180</option>
+          <option value="480x270">480×270 (quality)</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>Frames</label>
+        <select id="cfgPreviewFrames" onchange="savePreviewSettings()">
+          <option value="60">60 frames</option>
+          <option value="100">100 frames</option>
+          <option value="150" selected>150 frames</option>
+          <option value="200">200 frames</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>Quality</label>
+        <select id="cfgPreviewQuality" onchange="savePreviewSettings()">
+          <option value="2">High</option>
+          <option value="4" selected>Balanced</option>
+          <option value="7">Fast</option>
+        </select>
+      </div>
+      <div class="settings-row">
         <label>Loop duration</label>
         <select id="cfgPreviewDuration" onchange="savePreviewSettings()">
           <option value="10" selected>10 sec</option>
@@ -1045,9 +1070,8 @@
 
   async function loadPreviewImage(path) {
     const url = `/api/preview?path=${encodeURIComponent(path)}`;
-    // Fetch frame count and preload image in parallel
-    const [metaRes, imgLoaded] = await Promise.all([
-      fetch(`/api/preview/meta?path=${encodeURIComponent(path)}`).then(r => r.json()).catch(() => ({frames: 150})),
+    const [meta, imgLoaded] = await Promise.all([
+      fetch(`/api/preview/meta?path=${encodeURIComponent(path)}`).then(r => r.json()).catch(() => ({frames: 150, width: 320, height: 180})),
       new Promise(resolve => {
         const img = new Image();
         img.onload = () => resolve(true);
@@ -1056,11 +1080,20 @@
       }),
     ]);
     if (previewCurrentPath !== path || !imgLoaded) return;
-    const frames = metaRes.frames || 150;
-    const stripH = 180 * frames; // previewH * frames
+
+    const frames = meta.frames || 150;
+    const fw = meta.width  || 320;
+    const fh = meta.height || 180;
+    const stripH = fh * frames;
+
+    // Resize the popup frame to match the actual preview dimensions
+    previewImg.style.width  = fw + 'px';
+    previewImg.style.height = fh + 'px';
+    document.getElementById('hoverPreview').style.width = fw + 'px';
+
     previewImg.innerHTML = '';
     previewImg.style.backgroundImage = `url('${url}')`;
-    previewImg.style.backgroundSize = `320px ${stripH}px`;
+    previewImg.style.backgroundSize  = `${fw}px ${stripH}px`;
     previewImg.style.setProperty('--strip-h', `-${stripH}px`);
     previewImg.style.animation = `preview-roll ${getPreviewDuration()}s steps(${frames}) infinite`;
   }
@@ -1078,7 +1111,7 @@
 
   async function triggerPreviewBuild(path) {
     try {
-      await fetch(`/api/preview/build?path=${encodeURIComponent(path)}`, { method: 'POST' });
+      await fetch(`/api/preview/build?path=${encodeURIComponent(path)}&${previewParams()}`, { method: 'POST' });
       startQueuePolling();
     } catch(e) { return; }
 
@@ -1140,15 +1173,27 @@
   // ── Preview settings ──────────────────────────────────────────────
   function loadPreviewSettings() {
     const s = JSON.parse(localStorage.getItem('previewSettings') || '{}');
+    if (s.res)      document.getElementById('cfgPreviewRes').value      = s.res;
+    if (s.frames)   document.getElementById('cfgPreviewFrames').value   = s.frames;
+    if (s.quality)  document.getElementById('cfgPreviewQuality').value  = s.quality;
     if (s.duration) document.getElementById('cfgPreviewDuration').value = s.duration;
   }
   function savePreviewSettings() {
     localStorage.setItem('previewSettings', JSON.stringify({
+      res:      document.getElementById('cfgPreviewRes').value,
+      frames:   document.getElementById('cfgPreviewFrames').value,
+      quality:  document.getElementById('cfgPreviewQuality').value,
       duration: document.getElementById('cfgPreviewDuration').value,
     }));
   }
   function getPreviewDuration() {
     return parseInt(document.getElementById('cfgPreviewDuration').value) || 10;
+  }
+  function previewParams() {
+    const [w, h] = document.getElementById('cfgPreviewRes').value.split('x');
+    return `width=${w}&height=${h}`
+      + `&frames=${document.getElementById('cfgPreviewFrames').value}`
+      + `&quality=${document.getElementById('cfgPreviewQuality').value}`;
   }
   function togglePreviewSettings() {
     document.getElementById('previewSettingsToggle').classList.toggle('open');
@@ -1475,7 +1520,7 @@
   async function startGenerateAll() {
     if (genAllPoller) return; // already running
     try {
-      const res = await fetch('/api/preview/build-all', { method: 'POST' });
+      const res = await fetch(`/api/preview/build-all?${previewParams()}`, { method: 'POST' });
       const data = await res.json();
       updateGenAllUI(data);
       startQueuePolling();

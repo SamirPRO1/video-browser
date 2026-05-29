@@ -816,19 +816,42 @@ func spriteBuildAllProgressHandler(w http.ResponseWriter, r *http.Request) {
 
 // --- Preview (hover strip) ---
 
-const (
-	previewFrames = 150
-	previewW      = 320
-	previewH      = 180
-)
+type previewConfig struct {
+	Frames  int `json:"frames"`  // number of frames in the strip
+	Width   int `json:"width"`   // frame width px
+	Height  int `json:"height"`  // frame height px
+	Quality int `json:"quality"` // ffmpeg -q:v (1=best, 10=worst)
+}
+
+func defaultPreviewConfig() previewConfig {
+	return previewConfig{Frames: 150, Width: 320, Height: 180, Quality: 4}
+}
+
+func previewConfigFromQuery(q interface{ Get(string) string }) previewConfig {
+	cfg := defaultPreviewConfig()
+	if v, err := strconv.Atoi(q.Get("frames")); err == nil && v > 0 {
+		cfg.Frames = v
+	}
+	if v, err := strconv.Atoi(q.Get("width")); err == nil && v > 0 {
+		cfg.Width = v
+	}
+	if v, err := strconv.Atoi(q.Get("height")); err == nil && v > 0 {
+		cfg.Height = v
+	}
+	if v, err := strconv.Atoi(q.Get("quality")); err == nil && v > 0 {
+		cfg.Quality = v
+	}
+	return cfg
+}
 
 type previewJob struct {
-	Path      string    `json:"path"`
-	Name      string    `json:"name"`
-	Percent   int       `json:"percent"`
-	Done      bool      `json:"done"`
-	Err       string    `json:"err,omitempty"`
-	StartedAt time.Time `json:"startedAt"`
+	Path      string        `json:"path"`
+	Name      string        `json:"name"`
+	Percent   int           `json:"percent"`
+	Done      bool          `json:"done"`
+	Err       string        `json:"err,omitempty"`
+	StartedAt time.Time     `json:"startedAt"`
+	Cfg       previewConfig `json:"config"`
 }
 
 var (
@@ -836,13 +859,13 @@ var (
 	previewJobsMu sync.Mutex
 )
 
-func getOrCreatePreviewJob(relPath string) (*previewJob, bool) {
+func getOrCreatePreviewJob(relPath string, cfg previewConfig) (*previewJob, bool) {
 	previewJobsMu.Lock()
 	defer previewJobsMu.Unlock()
 	if j, ok := previewJobs[relPath]; ok && !j.Done {
 		return j, false
 	}
-	j := &previewJob{Path: relPath, Name: filepath.Base(relPath), StartedAt: time.Now()}
+	j := &previewJob{Path: relPath, Name: filepath.Base(relPath), StartedAt: time.Now(), Cfg: cfg}
 	previewJobs[relPath] = j
 	return j, true
 }
@@ -866,6 +889,8 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		return
 	}
 
+	cfg := job.Cfg
+
 	// Clean up any leftover frame files from a previous interrupted run.
 	old, _ := filepath.Glob(filepath.Join(cacheDir, "pframe_*.jpg"))
 	for _, f := range old {
@@ -875,17 +900,17 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 	// Step 1 — extract frames individually.
 	// Each frame is written as it's decoded, so out_time_ms advances
 	// continuously and gives real progress throughout the video.
-	fpsExpr := fmt.Sprintf("%d/%d", previewFrames, int(math.Ceil(duration)))
+	fpsExpr := fmt.Sprintf("%d/%d", cfg.Frames, int(math.Ceil(duration)))
 	framePat := filepath.Join(cacheDir, "pframe_%03d.jpg")
 	vf := fmt.Sprintf(
 		"fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
-		fpsExpr, previewW, previewH, previewW, previewH,
+		fpsExpr, cfg.Width, cfg.Height, cfg.Width, cfg.Height,
 	)
 	cmd1 := exec.Command(ffmpegBin,
 		"-progress", "pipe:1", "-nostats",
 		"-i", src,
 		"-vf", vf,
-		"-q:v", "4",
+		"-q:v", strconv.Itoa(cfg.Quality),
 		"-y", framePat,
 	)
 	stdout, err := cmd1.StdoutPipe()
@@ -935,7 +960,7 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		"-i", framePat,
 		"-vf", fmt.Sprintf("tile=1x%d", actualFrames),
 		"-frames:v", "1",
-		"-q:v", "4",
+		"-q:v", strconv.Itoa(cfg.Quality),
 		"-y", previewPath,
 	)
 	if out, err := cmd2.CombinedOutput(); err != nil {
@@ -950,11 +975,12 @@ func generatePreviewAsync(relPath, src string, job *previewJob) {
 		os.Remove(f)
 	}
 
-	// Store actual frame count so the frontend can animate correctly.
 	type previewMeta struct {
-		Frames int `json:"frames"`
+		Frames  int `json:"frames"`
+		Width   int `json:"width"`
+		Height  int `json:"height"`
 	}
-	metaData, _ := json.Marshal(previewMeta{Frames: actualFrames})
+	metaData, _ := json.Marshal(previewMeta{Frames: actualFrames, Width: cfg.Width, Height: cfg.Height})
 	os.WriteFile(filepath.Join(cacheDir, "preview_meta.json"), metaData, 0644)
 
 	previewJobsMu.Lock()
@@ -974,7 +1000,8 @@ func previewBuildHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
-	job, created := getOrCreatePreviewJob(relPath)
+	cfg := previewConfigFromQuery(r.URL.Query())
+	job, created := getOrCreatePreviewJob(relPath, cfg)
 	if created {
 		go generatePreviewAsync(relPath, src, job)
 	}
@@ -1029,9 +1056,9 @@ func previewMetaHandler(w http.ResponseWriter, r *http.Request) {
 	metaPath := filepath.Join(thumbCacheDir(src), "preview_meta.json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
-		// Older previews without meta — assume default frame count
+		cfg := defaultPreviewConfig()
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"frames":%d}`, previewFrames)
+		fmt.Fprintf(w, `{"frames":%d,"width":%d,"height":%d}`, cfg.Frames, cfg.Width, cfg.Height)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1070,7 +1097,7 @@ func collectVideos(root string) ([]string, error) {
 	return files, err
 }
 
-func runBulkPreview() {
+func runBulkPreview(cfg previewConfig) {
 	videos, err := collectVideos(*videoRoot)
 	if err != nil {
 		bulkMu.Lock()
@@ -1101,8 +1128,7 @@ func runBulkPreview() {
 		bulk.Current = filepath.Base(src)
 		bulkMu.Unlock()
 
-		// Reuse the per-file job system so individual progress also works
-		job, created := getOrCreatePreviewJob(relPath)
+		job, created := getOrCreatePreviewJob(relPath, cfg)
 		if created {
 			generatePreviewAsync(relPath, src, job) // blocking — one at a time
 		} else {
@@ -1142,9 +1168,10 @@ func previewBuildAllHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bulk = bulkJob{Running: true}
+	cfg := previewConfigFromQuery(r.URL.Query())
 	bulkMu.Unlock()
 
-	go runBulkPreview()
+	go runBulkPreview(cfg)
 
 	w.Header().Set("Content-Type", "application/json")
 	bulkMu.Lock()
