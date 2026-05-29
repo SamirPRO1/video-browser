@@ -349,43 +349,63 @@ type SpriteMeta struct {
 	Sheets      []string `json:"sheets"`
 }
 
-func generateSprites(src, cacheDir string) error {
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return err
-	}
+// --- Sprite config ---
 
-	// Get duration via ffprobe
+type spriteConfig struct {
+	Interval int `json:"interval"` // seconds between frames
+	Cols     int `json:"cols"`
+	Rows     int `json:"rows"`
+	Width    int `json:"width"`
+	Height   int `json:"height"`
+}
+
+func defaultSpriteConfig() spriteConfig {
+	return spriteConfig{Interval: 2, Cols: 12, Rows: 12, Width: 160, Height: 90}
+}
+
+func spriteConfigFromQuery(q interface{ Get(string) string }) spriteConfig {
+	cfg := defaultSpriteConfig()
+	if v, err := strconv.Atoi(q.Get("interval")); err == nil && v > 0 {
+		cfg.Interval = v
+	}
+	if v, err := strconv.Atoi(q.Get("cols")); err == nil && v > 0 {
+		cfg.Cols = v
+	}
+	if v, err := strconv.Atoi(q.Get("rows")); err == nil && v > 0 {
+		cfg.Rows = v
+	}
+	if v, err := strconv.Atoi(q.Get("width")); err == nil && v > 0 {
+		cfg.Width = v
+	}
+	if v, err := strconv.Atoi(q.Get("height")); err == nil && v > 0 {
+		cfg.Height = v
+	}
+	return cfg
+}
+
+func spriteVF(cfg spriteConfig) string {
+	return fmt.Sprintf(
+		"fps=1/%d,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tile=%dx%d",
+		cfg.Interval, cfg.Width, cfg.Height, cfg.Width, cfg.Height, cfg.Cols, cfg.Rows,
+	)
+}
+
+func probeDuration(src string) (float64, error) {
 	out, err := exec.Command(ffprobeBin,
-		"-v", "error",
-		"-show_entries", "format=duration",
-		"-of", "csv=p=0",
-		src,
+		"-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src,
 	).Output()
 	if err != nil {
-		return fmt.Errorf("ffprobe: %w", err)
+		return 0, fmt.Errorf("ffprobe: %w", err)
 	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err != nil || duration <= 0 {
-		return fmt.Errorf("bad duration: %q", strings.TrimSpace(string(out)))
+	d, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("bad duration: %q", strings.TrimSpace(string(out)))
 	}
+	return d, nil
+}
 
-	// Generate sprite sheets
-	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
-	cmd := exec.Command(ffmpegBin,
-		"-i", src,
-		"-vf", "fps=1/2,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=12x12",
-		"-qscale:v", "5",
-		"-y", spritePat,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ffmpeg sprites: %w\n%s", err, out)
-	}
-
-	// Collect produced sheet filenames
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		return err
-	}
+func collectSpriteSheets(cacheDir string) []string {
+	entries, _ := os.ReadDir(cacheDir)
 	var sheets []string
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), "sprite_") && strings.HasSuffix(e.Name(), ".jpg") {
@@ -393,19 +413,28 @@ func generateSprites(src, cacheDir string) error {
 		}
 	}
 	sort.Strings(sheets)
+	return sheets
+}
+
+func generateSprites(src, cacheDir string, cfg spriteConfig) error {
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return err
+	}
+	duration, err := probeDuration(src)
+	if err != nil {
+		return err
+	}
+	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
+	cmd := exec.Command(ffmpegBin, "-i", src, "-vf", spriteVF(cfg), "-qscale:v", "5", "-y", spritePat)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg sprites: %w\n%s", err, out)
+	}
+	sheets := collectSpriteSheets(cacheDir)
 	if len(sheets) == 0 {
 		return fmt.Errorf("no sprite sheets produced")
 	}
-
-	meta := SpriteMeta{
-		Duration:    duration,
-		Interval:    2,
-		Cols:        12,
-		Rows:        12,
-		ThumbWidth:  160,
-		ThumbHeight: 90,
-		Sheets:      sheets,
-	}
+	meta := SpriteMeta{Duration: duration, Interval: cfg.Interval, Cols: cfg.Cols, Rows: cfg.Rows,
+		ThumbWidth: cfg.Width, ThumbHeight: cfg.Height, Sheets: sheets}
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	return os.WriteFile(filepath.Join(cacheDir, "meta.json"), data, 0644)
 }
@@ -413,9 +442,13 @@ func generateSprites(src, cacheDir string) error {
 // --- Sprite build job tracking ---
 
 type spriteJob struct {
-	Percent int    `json:"percent"`
-	Done    bool   `json:"done"`
-	Err     string `json:"err,omitempty"`
+	Path      string       `json:"path"`
+	Name      string       `json:"name"`
+	Percent   int          `json:"percent"`
+	Done      bool         `json:"done"`
+	Err       string       `json:"err,omitempty"`
+	StartedAt time.Time    `json:"startedAt"`
+	Cfg       spriteConfig `json:"config"`
 }
 
 var (
@@ -423,18 +456,19 @@ var (
 	spriteJobsMu sync.Mutex
 )
 
-func getOrCreateJob(relPath string) (*spriteJob, bool) {
+func getOrCreateSpriteJob(relPath, name string, cfg spriteConfig) (*spriteJob, bool) {
 	spriteJobsMu.Lock()
 	defer spriteJobsMu.Unlock()
-	if j, ok := spriteJobs[relPath]; ok {
-		return j, false // already exists
+	if j, ok := spriteJobs[relPath]; ok && !j.Done {
+		return j, false
 	}
-	j := &spriteJob{}
+	j := &spriteJob{Path: relPath, Name: name, StartedAt: time.Now(), Cfg: cfg}
 	spriteJobs[relPath] = j
-	return j, true // newly created
+	return j, true
 }
 
 func generateSpritesAsync(relPath, src string, job *spriteJob) {
+	cfg := job.Cfg
 	cacheDir := thumbCacheDir(src)
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		spriteJobsMu.Lock()
@@ -443,37 +477,22 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		return
 	}
 
-	// Get duration
-	out, err := exec.Command(ffprobeBin,
-		"-v", "error",
-		"-show_entries", "format=duration",
-		"-of", "csv=p=0",
-		src,
-	).Output()
+	duration, err := probeDuration(src)
 	if err != nil {
 		spriteJobsMu.Lock()
-		job.Done, job.Err = true, "ffprobe: "+err.Error()
-		spriteJobsMu.Unlock()
-		return
-	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err != nil || duration <= 0 {
-		spriteJobsMu.Lock()
-		job.Done, job.Err = true, "bad duration"
+		job.Done, job.Err = true, err.Error()
 		spriteJobsMu.Unlock()
 		return
 	}
 
 	spritePat := filepath.Join(cacheDir, "sprite_%03d.jpg")
 	cmd := exec.Command(ffmpegBin,
-		"-progress", "pipe:1",
-		"-nostats",
+		"-progress", "pipe:1", "-nostats",
 		"-i", src,
-		"-vf", "fps=1/2,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=12x12",
+		"-vf", spriteVF(cfg),
 		"-qscale:v", "5",
 		"-y", spritePat,
 	)
-
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		spriteJobsMu.Lock()
@@ -482,7 +501,6 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		return
 	}
 	cmd.Stderr = io.Discard
-
 	if err := cmd.Start(); err != nil {
 		spriteJobsMu.Lock()
 		job.Done, job.Err = true, err.Error()
@@ -494,8 +512,7 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "out_time_ms=") {
-			ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64)
-			if err == nil && duration > 0 && ms > 0 {
+			if ms, err := strconv.ParseInt(strings.TrimPrefix(line, "out_time_ms="), 10, 64); err == nil && ms > 0 {
 				pct := int(float64(ms) / 1e6 / duration * 100)
 				if pct > 99 {
 					pct = 99
@@ -514,25 +531,9 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		return
 	}
 
-	// Collect sheets and write meta.json
-	entries, _ := os.ReadDir(cacheDir)
-	var sheets []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "sprite_") && strings.HasSuffix(e.Name(), ".jpg") {
-			sheets = append(sheets, e.Name())
-		}
-	}
-	sort.Strings(sheets)
-
-	meta := SpriteMeta{
-		Duration:    duration,
-		Interval:    2,
-		Cols:        12,
-		Rows:        12,
-		ThumbWidth:  160,
-		ThumbHeight: 90,
-		Sheets:      sheets,
-	}
+	sheets := collectSpriteSheets(cacheDir)
+	meta := SpriteMeta{Duration: duration, Interval: cfg.Interval, Cols: cfg.Cols, Rows: cfg.Rows,
+		ThumbWidth: cfg.Width, ThumbHeight: cfg.Height, Sheets: sheets}
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	if err := os.WriteFile(filepath.Join(cacheDir, "meta.json"), data, 0644); err != nil {
 		spriteJobsMu.Lock()
@@ -540,7 +541,6 @@ func generateSpritesAsync(relPath, src string, job *spriteJob) {
 		spriteJobsMu.Unlock()
 		return
 	}
-
 	spriteJobsMu.Lock()
 	job.Percent = 100
 	job.Done = true
@@ -558,12 +558,12 @@ func spriteBuildHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
-
-	job, created := getOrCreateJob(relPath)
+	cfg := spriteConfigFromQuery(r.URL.Query())
+	name := filepath.Base(src)
+	job, created := getOrCreateSpriteJob(relPath, name, cfg)
 	if created {
 		go generateSpritesAsync(relPath, src, job)
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	spriteJobsMu.Lock()
 	json.NewEncoder(w).Encode(job)
@@ -572,29 +572,169 @@ func spriteBuildHandler(w http.ResponseWriter, r *http.Request) {
 
 func spriteProgressHandler(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
-
+	w.Header().Set("Content-Type", "application/json")
 	spriteJobsMu.Lock()
-	job, ok := spriteJobs[relPath]
-	if ok {
+	if job, ok := spriteJobs[relPath]; ok {
 		json.NewEncoder(w).Encode(job)
 		spriteJobsMu.Unlock()
 		return
 	}
 	spriteJobsMu.Unlock()
-
-	// No active job — check if cache already exists
 	src, err := resolveInRoot(*videoRoot, relPath)
 	if err != nil {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
-	metaPath := filepath.Join(thumbCacheDir(src), "meta.json")
-	w.Header().Set("Content-Type", "application/json")
-	if _, err := os.Stat(metaPath); err == nil {
+	if _, err := os.Stat(filepath.Join(thumbCacheDir(src), "meta.json")); err == nil {
 		json.NewEncoder(w).Encode(&spriteJob{Percent: 100, Done: true})
 	} else {
 		json.NewEncoder(w).Encode(&spriteJob{})
 	}
+}
+
+func spriteQueueHandler(w http.ResponseWriter, r *http.Request) {
+	spriteJobsMu.Lock()
+	jobs := make([]*spriteJob, 0, len(spriteJobs))
+	for _, j := range spriteJobs {
+		jobs = append(jobs, j)
+	}
+	spriteJobsMu.Unlock()
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].StartedAt.After(jobs[j].StartedAt)
+	})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}
+
+// spriteBuildFolderHandler queues sprite generation for all videos in one folder (non-recursive).
+func spriteBuildFolderHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	raw := r.URL.Query().Get("path")
+	rel := filepath.Clean("/" + raw)
+	abs := filepath.Join(*videoRoot, rel)
+	if !strings.HasPrefix(abs, filepath.Clean(*videoRoot)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	cfg := spriteConfigFromQuery(r.URL.Query())
+	queued := 0
+	for _, e := range entries {
+		if e.IsDir() || !videoExts[strings.ToLower(filepath.Ext(e.Name()))] {
+			continue
+		}
+		src := filepath.Join(abs, e.Name())
+		relPath := filepath.ToSlash(filepath.Join(rel, e.Name()))
+		job, created := getOrCreateSpriteJob(relPath, e.Name(), cfg)
+		if created {
+			go generateSpritesAsync(relPath, src, job)
+			queued++
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"queued": queued})
+}
+
+// --- Bulk sprite generation (all videos) ---
+
+type bulkSpriteJob struct {
+	Total   int    `json:"total"`
+	Done    int    `json:"done"`
+	Current string `json:"current,omitempty"`
+	Running bool   `json:"running"`
+}
+
+var (
+	bulkSprite   bulkSpriteJob
+	bulkSpriteMu sync.Mutex
+)
+
+func runBulkSprite(cfg spriteConfig) {
+	videos, err := collectVideos(*videoRoot)
+	if err != nil {
+		bulkSpriteMu.Lock()
+		bulkSprite.Running = false
+		bulkSpriteMu.Unlock()
+		return
+	}
+	var pending []string
+	for _, v := range videos {
+		if _, err := os.Stat(filepath.Join(thumbCacheDir(v), "meta.json")); os.IsNotExist(err) {
+			pending = append(pending, v)
+		}
+	}
+	bulkSpriteMu.Lock()
+	bulkSprite.Total = len(pending)
+	bulkSprite.Done = 0
+	bulkSpriteMu.Unlock()
+
+	for _, src := range pending {
+		rel, _ := filepath.Rel(*videoRoot, src)
+		relPath := "/" + filepath.ToSlash(rel)
+		name := filepath.Base(src)
+
+		bulkSpriteMu.Lock()
+		bulkSprite.Current = name
+		bulkSpriteMu.Unlock()
+
+		job, created := getOrCreateSpriteJob(relPath, name, cfg)
+		if created {
+			generateSpritesAsync(relPath, src, job) // blocking — one at a time
+		} else {
+			for {
+				spriteJobsMu.Lock()
+				done := job.Done
+				spriteJobsMu.Unlock()
+				if done {
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+		bulkSpriteMu.Lock()
+		bulkSprite.Done++
+		bulkSpriteMu.Unlock()
+	}
+	bulkSpriteMu.Lock()
+	bulkSprite.Running = false
+	bulkSprite.Current = ""
+	bulkSpriteMu.Unlock()
+}
+
+func spriteBuildAllHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	bulkSpriteMu.Lock()
+	if bulkSprite.Running {
+		bulkSpriteMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(bulkSprite)
+		return
+	}
+	bulkSprite = bulkSpriteJob{Running: true}
+	cfg := spriteConfigFromQuery(r.URL.Query())
+	bulkSpriteMu.Unlock()
+	go runBulkSprite(cfg)
+	w.Header().Set("Content-Type", "application/json")
+	bulkSpriteMu.Lock()
+	json.NewEncoder(w).Encode(bulkSprite)
+	bulkSpriteMu.Unlock()
+}
+
+func spriteBuildAllProgressHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	bulkSpriteMu.Lock()
+	json.NewEncoder(w).Encode(bulkSprite)
+	bulkSpriteMu.Unlock()
 }
 
 // --- Preview (hover strip) ---
@@ -944,7 +1084,7 @@ func metaHandler(w http.ResponseWriter, r *http.Request) {
 	needsGen := os.IsNotExist(err) || (err == nil && srcInfo.ModTime().After(metaInfo.ModTime()))
 
 	if needsGen {
-		if err := generateSprites(src, cacheDir); err != nil {
+		if err := generateSprites(src, cacheDir, defaultSpriteConfig()); err != nil {
 			log.Printf("sprite generation failed for %s: %v", src, err)
 			http.Error(w, "sprite generation failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1106,6 +1246,15 @@ func main() {
 	}))
 
 	http.HandleFunc("/api/video/meta", requireAuth(metaHandler))
+	http.HandleFunc("/api/sprite/build-all", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			spriteBuildAllHandler(w, r)
+		} else {
+			spriteBuildAllProgressHandler(w, r)
+		}
+	}))
+	http.HandleFunc("/api/sprite/build-folder", requireAuth(spriteBuildFolderHandler))
+	http.HandleFunc("/api/sprite/queue", requireAuth(spriteQueueHandler))
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
 	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))
 	http.HandleFunc("/api/sprite", requireAuth(spriteHandler))

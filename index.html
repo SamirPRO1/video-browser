@@ -117,12 +117,11 @@
     color: var(--text-secondary);
     margin-top: 8px;
   }
-
   .sidebar-action {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 10px 16px;
+    gap: 5px;
+    padding: 8px 16px;
     margin-right: 16px;
     border-radius: 0 24px 24px 0;
     cursor: pointer;
@@ -141,14 +140,14 @@
   .sidebar-action-sub {
     font-size: 11px;
     color: var(--text-secondary);
-    padding-left: 30px;
+    padding-left: 28px;
   }
   .sidebar-prog-track {
     height: 3px;
     background: var(--border);
     border-radius: 2px;
     overflow: hidden;
-    margin-left: 30px;
+    margin-left: 28px;
   }
   .sidebar-prog-fill {
     height: 100%;
@@ -157,6 +156,97 @@
     transition: width 0.5s;
   }
   .sidebar-prog-fill.done { background: #1e8e3e; }
+
+  /* Sprite settings panel */
+  .sprite-settings {
+    padding: 0 16px 8px;
+    display: none;
+  }
+  .sprite-settings.open { display: block; }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .settings-row label { color: var(--text-secondary); }
+  .settings-row select {
+    font-size: 12px;
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+  }
+  .settings-toggle:hover { color: var(--text); }
+  .settings-toggle svg { transition: transform 0.2s; }
+  .settings-toggle.open svg { transform: rotate(90deg); }
+
+  /* Sprite queue */
+  .sprite-queue { padding: 0 0 8px; }
+  .queue-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .queue-item:last-child { border-bottom: none; }
+  .queue-item-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .queue-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .queue-item-pct {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .queue-item-pct.done  { color: #1e8e3e; }
+  .queue-item-pct.error { color: var(--danger); }
+  .queue-bar { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; }
+  .queue-bar-fill { height: 100%; background: var(--accent); border-radius: 1px; transition: width 0.4s; }
+  .queue-bar-fill.done  { background: #1e8e3e; }
+  .queue-bar-fill.error { background: var(--danger); }
+  .queue-dismiss {
+    position: absolute;
+    top: 6px; right: 10px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1;
+    display: none;
+  }
+  .queue-item:hover .queue-dismiss { display: block; }
+  .queue-empty {
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
 
   /* Main content */
   .main {
@@ -487,71 +577,6 @@
     transition: width 0.4s;
   }
 
-  /* Sprite build notifications */
-  .build-tray {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    z-index: 250;
-    pointer-events: none;
-  }
-  .build-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    padding: 14px 16px;
-    min-width: 280px;
-    max-width: 340px;
-    pointer-events: all;
-  }
-  .build-card-top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-  }
-  .build-card-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-  .build-card-pct {
-    font-size: 13px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--accent);
-    flex-shrink: 0;
-  }
-  .build-card-pct.done  { color: #1e8e3e; }
-  .build-card-pct.error { color: var(--danger); }
-  .build-bar-track {
-    height: 6px;
-    background: var(--hover-bg);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .build-bar-fill {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 3px;
-    transition: width 0.4s ease;
-  }
-  .build-bar-fill.done  { background: #1e8e3e; }
-  .build-bar-fill.error { background: var(--danger); }
-  .build-card-label {
-    font-size: 11px;
-    color: var(--text-secondary);
-    margin-top: 6px;
-  }
-
   /* Toast */
   .toast {
     position: fixed;
@@ -601,16 +626,80 @@
       All Videos
     </div>
 
-    <div class="sidebar-section">Tools</div>
-    <div class="sidebar-action" id="genAllBtn" onclick="startGenerateAll()">
+    <!-- Previews -->
+    <div class="sidebar-section">Previews</div>
+    <div class="sidebar-action" onclick="startGenerateAll()">
       <div class="sidebar-action-top">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14zM5 15h2v2H5zm0-4h2v2H5zm0-4h2v2H5zm4 8h6v2H9zm0-4h6v2H9zm0-4h6v2H9zm8 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2z"/></svg>
-        Generate Previews
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
+        Generate All
       </div>
       <div class="sidebar-action-sub" id="genAllStatus">All videos</div>
       <div class="sidebar-prog-track" id="genAllProgTrack" style="display:none">
         <div class="sidebar-prog-fill" id="genAllProgFill" style="width:0%"></div>
       </div>
+    </div>
+
+    <!-- Sprites -->
+    <div class="sidebar-section">Sprites</div>
+
+    <!-- Settings toggle -->
+    <div class="settings-toggle" id="settingsToggle" onclick="toggleSettings()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+      Settings
+    </div>
+    <div class="sprite-settings" id="spriteSettings">
+      <div class="settings-row">
+        <label>Resolution</label>
+        <select id="cfgRes" onchange="saveSettings()">
+          <option value="160x90">160×90 (fast)</option>
+          <option value="240x135">240×135</option>
+          <option value="320x180">320×180 (quality)</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>Interval</label>
+        <select id="cfgInterval" onchange="saveSettings()">
+          <option value="1">1 sec</option>
+          <option value="2" selected>2 sec</option>
+          <option value="5">5 sec</option>
+          <option value="10">10 sec</option>
+          <option value="30">30 sec</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <label>Grid</label>
+        <select id="cfgGrid" onchange="saveSettings()">
+          <option value="10x10">10×10 (100 thumbs)</option>
+          <option value="12x12" selected>12×12 (144 thumbs)</option>
+          <option value="15x15">15×15 (225 thumbs)</option>
+          <option value="20x20">20×20 (400 thumbs)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Build actions -->
+    <div class="sidebar-action" id="buildFolderBtn" onclick="buildFolderSprites()">
+      <div class="sidebar-action-top">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        Build This Folder
+      </div>
+      <div class="sidebar-action-sub" id="buildFolderLabel">All Videos</div>
+    </div>
+    <div class="sidebar-action" onclick="buildAllSprites()">
+      <div class="sidebar-action-top">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14zM5 15h2v2H5zm0-4h2v2H5zm0-4h2v2H5zm4 8h6v2H9zm0-4h6v2H9zm0-4h6v2H9zm8 8h2v2h-2zm0-4h2v2h-2zm0-4h2v2h-2z"/></svg>
+        Build All
+      </div>
+      <div class="sidebar-action-sub" id="buildAllStatus">All videos</div>
+      <div class="sidebar-prog-track" id="buildAllProgTrack" style="display:none">
+        <div class="sidebar-prog-fill" id="buildAllProgFill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Queue -->
+    <div class="sidebar-section">Queue</div>
+    <div class="sprite-queue" id="spriteQueue">
+      <div class="queue-empty">No jobs yet</div>
     </div>
   </div>
 
@@ -681,8 +770,6 @@
   </div>
 </div>
 
-<!-- Sprite build notification tray -->
-<div class="build-tray" id="buildTray"></div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
@@ -695,6 +782,8 @@
     currentPath = path;
     loadDirectory(path);
     updateBreadcrumb(path);
+    const folderName = path === '/' || path === '' ? 'All Videos' : path.split('/').filter(Boolean).pop();
+    document.getElementById('buildFolderLabel').textContent = folderName;
   }
 
   function updateBreadcrumb(path) {
@@ -985,14 +1074,86 @@
     setTimeout(() => hidePreview(), 2000);
   }, { passive: true });
 
-  // ── Sprite build ──────────────────────────────────────────────────
-  const buildPollers = {}; // relPath → intervalId
+  // ── Sprite settings ───────────────────────────────────────────────
+  function loadSettings() {
+    const s = JSON.parse(localStorage.getItem('spriteSettings') || '{}');
+    if (s.res)      document.getElementById('cfgRes').value      = s.res;
+    if (s.interval) document.getElementById('cfgInterval').value = s.interval;
+    if (s.grid)     document.getElementById('cfgGrid').value     = s.grid;
+  }
+  function saveSettings() {
+    localStorage.setItem('spriteSettings', JSON.stringify({
+      res:      document.getElementById('cfgRes').value,
+      interval: document.getElementById('cfgInterval').value,
+      grid:     document.getElementById('cfgGrid').value,
+    }));
+  }
+  function spriteParams() {
+    const [w, h] = document.getElementById('cfgRes').value.split('x');
+    const [cols, rows] = document.getElementById('cfgGrid').value.split('x');
+    const interval = document.getElementById('cfgInterval').value;
+    return `width=${w}&height=${h}&cols=${cols}&rows=${rows}&interval=${interval}`;
+  }
+  function toggleSettings() {
+    const toggle = document.getElementById('settingsToggle');
+    const panel  = document.getElementById('spriteSettings');
+    toggle.classList.toggle('open');
+    panel.classList.toggle('open');
+  }
+  loadSettings();
 
+  // ── Sprite queue ──────────────────────────────────────────────────
+  const dismissedJobs = new Set();
+  let queuePoller = null;
+
+  function startQueuePolling() {
+    if (queuePoller) return;
+    queuePoller = setInterval(pollQueue, 2000);
+  }
+  function stopQueuePolling() {
+    clearInterval(queuePoller);
+    queuePoller = null;
+  }
+
+  async function pollQueue() {
+    try {
+      const res = await fetch('/api/sprite/queue');
+      const jobs = await res.json();
+      renderQueue(jobs);
+      const anyRunning = jobs.some(j => !j.done);
+      if (!anyRunning) stopQueuePolling();
+    } catch(e) {}
+  }
+
+  function renderQueue(jobs) {
+    const el = document.getElementById('spriteQueue');
+    const visible = (jobs || []).filter(j => !dismissedJobs.has(j.path));
+    if (!visible.length) { el.innerHTML = '<div class="queue-empty">No jobs yet</div>'; return; }
+    el.innerHTML = visible.slice(0, 20).map(j => {
+      const pct  = Math.min(100, j.percent || 0);
+      const cls  = j.err ? 'error' : j.done ? 'done' : '';
+      const pctLabel = j.err ? '✗' : j.done ? '✓' : pct + '%';
+      return `<div class="queue-item">
+        <div class="queue-item-top">
+          <span class="queue-item-name" title="${escapeHtml(j.name || j.path)}">${escapeHtml(j.name || j.path)}</span>
+          <span class="queue-item-pct ${cls}">${pctLabel}</span>
+        </div>
+        <div class="queue-bar"><div class="queue-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <span class="queue-dismiss" onclick="dismissJob('${escapeHtml(j.path)}')">✕</span>
+      </div>`;
+    }).join('');
+  }
+
+  function dismissJob(path) {
+    dismissedJobs.add(path);
+    pollQueue();
+  }
+
+  // ── Sprite build ──────────────────────────────────────────────────
   function rowBuildSprites(event, entry) {
     event.stopPropagation();
     startBuild(entry.path, entry.name);
   }
-
   function ctxBuildSprites() {
     if (!ctxEntry) return;
     const { path, name } = ctxEntry;
@@ -1001,77 +1162,84 @@
   }
 
   async function startBuild(path, name) {
-    if (buildPollers[path]) { showToast('Already building — check the progress card'); return; }
-
-    showBuildCard(path, name, 0, false, '');
-
     try {
-      await fetch(`/api/sprite/build?path=${encodeURIComponent(path)}`, { method: 'POST' });
-    } catch(e) {
-      updateBuildCard(path, 0, true, e.message);
-      return;
-    }
+      await fetch(`/api/sprite/build?path=${encodeURIComponent(path)}&${spriteParams()}`, { method: 'POST' });
+      startQueuePolling();
+      pollQueue();
+    } catch(e) { showToast('Build failed: ' + e.message); }
+  }
 
-    buildPollers[path] = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/sprite/progress?path=${encodeURIComponent(path)}`);
-        const data = await res.json();
-        updateBuildCard(path, data.percent, data.done, data.err || '');
-        if (data.done) {
-          clearInterval(buildPollers[path]);
-          delete buildPollers[path];
-          if (!data.err) {
-            setTimeout(() => removeBuildCard(path), 4000);
-            loadDirectory(currentPath); // refresh row to show green sprite icon
+  async function buildFolderSprites() {
+    const folder = currentPath === '/' ? '' : currentPath;
+    try {
+      const res = await fetch(`/api/sprite/build-folder?path=${encodeURIComponent(currentPath)}&${spriteParams()}`, { method: 'POST' });
+      const data = await res.json();
+      showToast(`Queued ${data.queued} video${data.queued !== 1 ? 's' : ''}`);
+      startQueuePolling();
+      pollQueue();
+    } catch(e) { showToast('Failed: ' + e.message); }
+  }
+
+  let buildAllSpritePoller = null;
+
+  async function buildAllSprites() {
+    if (buildAllSpritePoller) { showToast('Already running'); return; }
+    try {
+      await fetch(`/api/sprite/build-all?${spriteParams()}`, { method: 'POST' });
+      startQueuePolling();
+      pollQueue();
+      buildAllSpritePoller = setInterval(async () => {
+        try {
+          const res = await fetch('/api/sprite/build-all');
+          const data = await res.json();
+          updateBuildAllUI(data);
+          if (!data.running) {
+            clearInterval(buildAllSpritePoller);
+            buildAllSpritePoller = null;
+            loadDirectory(currentPath);
           }
-        }
-      } catch(e) {
-        updateBuildCard(path, 0, true, e.message);
-        clearInterval(buildPollers[path]);
-        delete buildPollers[path];
+        } catch(e) { clearInterval(buildAllSpritePoller); buildAllSpritePoller = null; }
+      }, 2000);
+    } catch(e) { showToast('Failed: ' + e.message); }
+  }
+
+  function updateBuildAllUI(data) {
+    const status = document.getElementById('buildAllStatus');
+    const track  = document.getElementById('buildAllProgTrack');
+    const fill   = document.getElementById('buildAllProgFill');
+    if (!data.running && data.total === 0) {
+      status.textContent = 'All videos'; track.style.display = 'none'; return;
+    }
+    track.style.display = 'block';
+    if (data.running) {
+      status.textContent = `${data.done} / ${data.total}${data.current ? ' — ' + data.current : ''}`;
+      fill.style.width = (data.total > 0 ? data.done / data.total * 100 : 0) + '%';
+      fill.classList.remove('done');
+    } else {
+      status.textContent = `Done — ${data.done} built`;
+      fill.style.width = '100%'; fill.classList.add('done');
+    }
+  }
+
+  // Check on load
+  (async () => {
+    try {
+      const res = await fetch('/api/sprite/build-all');
+      const data = await res.json();
+      updateBuildAllUI(data);
+      if (data.running) {
+        startQueuePolling();
+        buildAllSpritePoller = setInterval(async () => {
+          const r = await fetch('/api/sprite/build-all');
+          const d = await r.json();
+          updateBuildAllUI(d);
+          if (!d.running) { clearInterval(buildAllSpritePoller); buildAllSpritePoller = null; }
+        }, 2000);
       }
-    }, 1200);
-  }
+    } catch(e) {}
+    pollQueue();
+  })();
 
-  function cardId(path) { return 'bc_' + btoa(path).replace(/[^a-zA-Z0-9]/g, ''); }
-
-  function showBuildCard(path, name, percent, done, err) {
-    const tray = document.getElementById('buildTray');
-    const id = cardId(path);
-    if (document.getElementById(id)) return;
-    const card = document.createElement('div');
-    card.className = 'build-card';
-    card.id = id;
-    card.dataset.name = name;
-    card.innerHTML = buildCardHTML(name, percent, done, err);
-    tray.appendChild(card);
-  }
-
-  function updateBuildCard(path, percent, done, err) {
-    const card = document.getElementById(cardId(path));
-    if (!card) return;
-    card.innerHTML = buildCardHTML(card.dataset.name || '', percent, done, err);
-  }
-
-  function removeBuildCard(path) {
-    const card = document.getElementById(cardId(path));
-    if (card) card.remove();
-  }
-
-  function buildCardHTML(name, percent, done, err) {
-    const pct = Math.min(100, Math.max(0, percent));
-    const cls = err ? 'error' : done ? 'done' : '';
-    const label = err ? err : done ? 'Done — sprites cached' : 'Generating sprite sheets…';
-    const pctLabel = err ? 'Error' : done ? '100%' : pct + '%';
-    return `
-      <div class="build-card-top">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--text-secondary)"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14z"/></svg>
-        <span class="build-card-name">${escapeHtml(name)}</span>
-        <span class="build-card-pct ${cls}">${pctLabel}</span>
-      </div>
-      <div class="build-bar-track"><div class="build-bar-fill ${cls}" style="width:${pct}%"></div></div>
-      <div class="build-card-label">${escapeHtml(label)}</div>`;
-  }
 
   function ctxCopyUrl() {
     if (!ctxEntry) return;
