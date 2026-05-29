@@ -1134,41 +1134,49 @@
   let previewCurrentPath = null;
   let previewPollTimer = null;
   let previewHideTimer = null;
+  let previewShowTimer = null;
   const isMobile = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-  function positionPreview(e) {
+  function positionPreviewAtRow(row) {
     const pad = 12;
-    const pw = 320, ph = 210;
-    let left = e.clientX + pad;
-    let top  = e.clientY - ph / 2;
-    if (left + pw > window.innerWidth  - pad) left = e.clientX - pw - pad;
-    if (top  + ph > window.innerHeight - pad) top  = window.innerHeight - ph - pad;
+    const pw = preview.offsetWidth  || 320;
+    const ph = preview.offsetHeight || 210;
+    const rect = row.getBoundingClientRect();
+    // Try to appear to the left of the file list so it never overlaps the row actions
+    let left = rect.left - pw - pad;
+    if (left < pad) left = rect.right + pad; // flip right if no room on left
+    if (left + pw > window.innerWidth - pad) left = window.innerWidth - pw - pad;
+    let top = rect.top + (rect.height / 2) - (ph / 2);
+    if (top + ph > window.innerHeight - pad) top = window.innerHeight - ph - pad;
     if (top < pad) top = pad;
     preview.style.left = left + 'px';
     preview.style.top  = top  + 'px';
   }
 
-  function showPreviewFor(path, name, hasPreview, e) {
-    if (previewCurrentPath === path) {
-      if (e) positionPreview(e);
-      return;
-    }
+  function showPreviewFor(path, name, hasPreview, row) {
+    if (previewCurrentPath === path) return; // already showing — don't reposition
+    clearTimeout(previewShowTimer);
     clearTimeout(previewHideTimer);
-    clearInterval(previewPollTimer);
-    previewCurrentPath = path;
-    previewName.textContent = name;
-    previewImg.classList.remove('rolling');
-    previewImg.style.backgroundImage = '';
 
-    if (e) positionPreview(e);
-    preview.classList.add('visible');
+    // Small delay so quick mouse passes to click buttons don't trigger the preview
+    previewShowTimer = setTimeout(() => {
+      clearInterval(previewPollTimer);
+      previewCurrentPath = path;
+      previewName.textContent = name;
+      previewImg.style.animation = '';
+      previewImg.style.backgroundImage = '';
+      document.getElementById('hoverPreviewPlaybar').style.animation = '';
 
-    if (hasPreview) {
-      loadPreviewImage(path);
-    } else {
-      showPreviewLoading(0);
-      triggerPreviewBuild(path);
-    }
+      preview.classList.add('visible');
+      positionPreviewAtRow(row);
+
+      if (hasPreview) {
+        loadPreviewImage(path);
+      } else {
+        showPreviewLoading(0);
+        triggerPreviewBuild(path);
+      }
+    }, 200);
   }
 
   async function loadPreviewImage(path) {
@@ -1240,6 +1248,7 @@
   }
 
   function hidePreview() {
+    clearTimeout(previewShowTimer); // cancel pending show
     previewHideTimer = setTimeout(() => {
       preview.classList.remove('visible');
       previewCurrentPath = null;
@@ -1249,27 +1258,26 @@
     }, 120);
   }
 
-  // Event delegation on file list
-  document.getElementById('fileList').addEventListener('mousemove', e => {
+  // Use mouseover (delegation) so we get one event per row entry, not every pixel
+  document.getElementById('fileList').addEventListener('mouseover', e => {
     const row = e.target.closest('.file-row[data-path]');
-    if (!row || row.dataset.broken === 'true') { hidePreview(); return; }
+    if (!row || row.dataset.broken === 'true') return;
     clearTimeout(previewHideTimer);
-    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', e);
+    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', row);
   });
 
-  document.getElementById('fileList').addEventListener('mouseleave', () => hidePreview());
+  document.getElementById('fileList').addEventListener('mouseout', e => {
+    // Only hide when leaving a row entirely (not moving between child elements)
+    const row = e.target.closest('.file-row[data-path]');
+    if (row && row.contains(e.relatedTarget)) return;
+    hidePreview();
+  });
 
   // Mobile: touchstart shows preview, touchend hides after delay
   document.getElementById('fileList').addEventListener('touchstart', e => {
     const row = e.target.closest('.file-row[data-path]');
     if (!row) return;
-    const path = row.dataset.path;
-    const name = row.dataset.name;
-    const hasPreview = row.dataset.hasPreview === 'true';
-    // Position near center of screen on mobile
-    const rect = row.getBoundingClientRect();
-    const fakeEvt = { clientX: window.innerWidth / 2 - 160, clientY: rect.top - 210 };
-    showPreviewFor(path, name, hasPreview, fakeEvt);
+    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', row);
   }, { passive: true });
 
   document.getElementById('fileList').addEventListener('touchend', () => {
