@@ -1500,27 +1500,61 @@ func previewBuildAllProgressHandler(w http.ResponseWriter, r *http.Request) {
 	bulkMu.Unlock()
 }
 
+var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._\- ]+`)
+
+// sanitizeClipName returns a filesystem-safe name without extension, or "" if invalid.
+func sanitizeClipName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	// Strip extension if user typed one — we always reuse the source extension.
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	name = unsafeName.ReplaceAllString(name, "_")
+	name = strings.Trim(name, ". ")
+	if len(name) > 120 {
+		name = name[:120]
+	}
+	return name
+}
+
 // nextClipPath returns the physical save path and the virtual browser path for the next clip.
-func nextClipPath(src string) (physical, virtual string) {
+// If customName is provided, it's used as the base; auto-appends a numeric suffix on collision.
+func nextClipPath(src, customName string) (physical, virtual string) {
 	rel, _ := filepath.Rel(*videoRoot, src)
 	relDir := filepath.Dir(rel)
 	ext := filepath.Ext(src)
-	base := strings.TrimSuffix(filepath.Base(src), ext)
-	re := regexp.MustCompile("^" + regexp.QuoteMeta(base) + `_clip(\d+)` + regexp.QuoteMeta(ext) + "$")
-
 	clipsDir := filepath.Join(*clipsRoot, relDir)
 	os.MkdirAll(clipsDir, 0755)
 
-	entries, _ := os.ReadDir(clipsDir)
-	max := 0
-	for _, e := range entries {
-		if m := re.FindStringSubmatch(e.Name()); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil && n > max {
-				max = n
+	var fname string
+	if customName != "" {
+		// Use custom name; if it collides, append _2, _3, ...
+		candidate := customName + ext
+		n := 2
+		for {
+			if _, err := os.Stat(filepath.Join(clipsDir, candidate)); os.IsNotExist(err) {
+				fname = candidate
+				break
+			}
+			candidate = fmt.Sprintf("%s_%d%s", customName, n, ext)
+			n++
+		}
+	} else {
+		base := strings.TrimSuffix(filepath.Base(src), ext)
+		re := regexp.MustCompile("^" + regexp.QuoteMeta(base) + `_clip(\d+)` + regexp.QuoteMeta(ext) + "$")
+		entries, _ := os.ReadDir(clipsDir)
+		max := 0
+		for _, e := range entries {
+			if m := re.FindStringSubmatch(e.Name()); m != nil {
+				if n, err := strconv.Atoi(m[1]); err == nil && n > max {
+					max = n
+				}
 			}
 		}
+		fname = fmt.Sprintf("%s_clip%02d%s", base, max+1, ext)
 	}
-	fname := fmt.Sprintf("%s_clip%02d%s", base, max+1, ext)
+
 	physical = filepath.Join(clipsDir, fname)
 	virtual = filepath.ToSlash(filepath.Join("/", relDir, clipsSentinel, fname))
 	return
@@ -1655,6 +1689,7 @@ type clipRequest struct {
 	Path  string  `json:"path"`
 	Start float64 `json:"start"`
 	End   float64 `json:"end"`
+	Name  string  `json:"name,omitempty"`
 }
 
 func clipHandler(w http.ResponseWriter, r *http.Request) {
@@ -1669,7 +1704,7 @@ func clipHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	physOut, virtOut := nextClipPath(src)
+	physOut, virtOut := nextClipPath(src, sanitizeClipName(req.Name))
 	dur := req.End - req.Start
 
 	// Write directly to the clips dir (under $HOME) — snap ffmpeg can access

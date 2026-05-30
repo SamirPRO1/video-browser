@@ -16,8 +16,20 @@
     --accent: #1a73e8;
     --accent-hover: #1557b0;
     --error: #d93025;
+    --error-soft: #fce8e6;
     --radius: 8px;
     --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  }
+  [data-theme="dark"] {
+    --bg: #1a1a1a;
+    --surface: #242424;
+    --border: #383838;
+    --text: #e8eaed;
+    --text-secondary: #9aa0a6;
+    --accent: #8ab4f8;
+    --accent-hover: #aecbfa;
+    --error: #f28b82;
+    --error-soft: #3c1010;
   }
 
   body {
@@ -106,7 +118,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: #fce8e6;
+    background: var(--error-soft);
     padding: 10px 12px;
     border-radius: var(--radius);
   }
@@ -158,6 +170,10 @@
 </div>
 
 <script>
+  // Apply saved theme on load
+  const savedTheme = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+
   if (window.location.search.includes('error=1')) {
     document.getElementById('errorMsg').style.display = 'flex';
   }
