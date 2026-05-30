@@ -686,6 +686,46 @@
     margin: 4px 0;
   }
 
+  /* Grid sort toolbar */
+  .grid-toolbar {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  body.view-grid .grid-toolbar { display: flex; }
+  .grid-toolbar-label {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .grid-sort-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px 12px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    font-family: inherit;
+  }
+  .grid-sort-btn:hover { background: var(--hover-bg); color: var(--text); }
+  .grid-sort-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .grid-sort-arrow { font-size: 9px; opacity: 0.8; }
+
   /* Grid view */
   .file-grid {
     flex: 1;
@@ -1324,6 +1364,12 @@
     </div>
     <div class="dir-summary" id="dirSummary"></div>
     <div class="file-list" id="fileList"></div>
+    <div class="grid-toolbar">
+      <span class="grid-toolbar-label">Sort</span>
+      <button class="grid-sort-btn" id="gsBtn-name" onclick="setSort('name')">Name <span class="grid-sort-arrow" id="gsArr-name"></span></button>
+      <button class="grid-sort-btn" id="gsBtn-date" onclick="setSort('date')">Modified <span class="grid-sort-arrow" id="gsArr-date"></span></button>
+      <button class="grid-sort-btn" id="gsBtn-size" onclick="setSort('size')">Size <span class="grid-sort-arrow" id="gsArr-size"></span></button>
+    </div>
     <div class="file-grid" id="fileGrid"></div>
   </div>
 </div>
@@ -1572,11 +1618,21 @@
 
   function updateSortHeaders() {
     ['name','date','size'].forEach(c => {
-      const hdr = document.getElementById('hdr' + c.charAt(0).toUpperCase() + c.slice(1));
-      const arr = document.getElementById('arr' + c.charAt(0).toUpperCase() + c.slice(1));
-      if (!hdr || !arr) return;
-      hdr.classList.toggle('active', c === sortCol);
-      arr.textContent = c === sortCol ? (sortDir === 1 ? '▲' : '▼') : '';
+      const cap = c.charAt(0).toUpperCase() + c.slice(1);
+      // List view column headers
+      const hdr = document.getElementById('hdr' + cap);
+      const arr = document.getElementById('arr' + cap);
+      if (hdr && arr) {
+        hdr.classList.toggle('active', c === sortCol);
+        arr.textContent = c === sortCol ? (sortDir === 1 ? '▲' : '▼') : '';
+      }
+      // Grid view toolbar buttons
+      const gsBtn = document.getElementById('gsBtn-' + c);
+      const gsArr = document.getElementById('gsArr-' + c);
+      if (gsBtn && gsArr) {
+        gsBtn.classList.toggle('active', c === sortCol);
+        gsArr.textContent = c === sortCol ? (sortDir === 1 ? '▲' : '▼') : '';
+      }
     });
   }
 
@@ -2562,6 +2618,7 @@
     } catch(e) {}
   })();
 
+  updateSortHeaders();
   navigate('/');
 </script>
 
