@@ -599,94 +599,151 @@
     margin: 4px 0;
   }
 
-  /* Hover preview */
-  .hover-preview {
-    position: fixed;
-    z-index: 160;
-    width: 320px;
-    background: #000;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
-    pointer-events: none;
-    opacity: 0;
-    transform: scale(0.95);
-    transition: opacity 0.15s, transform 0.15s;
+  /* Inline expanded row panel */
+  .file-row.expanded {
+    background: #e8f0fe;
   }
-  .hover-preview.visible {
-    opacity: 1;
-    transform: scale(1);
+  .row-expand {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: minmax(320px, 480px) 1fr;
+    gap: 24px;
+    animation: row-expand-in 0.18s ease;
   }
-  .hover-preview-img {
-    width: 320px;
-    height: 180px;
-    background-color: #111;
-    background-repeat: no-repeat;
-    background-size: 320px 27000px; /* 150 frames × 180px */
+  @keyframes row-expand-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
-  @keyframes preview-roll {
-    to { background-position-y: var(--strip-h, -27000px); }
-  }
-  .hover-preview-img.rolling {
-    animation: preview-roll 10s steps(150) infinite;
-  }
-  .hover-preview-playbar {
-    height: 3px;
-    background: rgba(255,255,255,0.08);
-    position: relative;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-  .hover-preview-playbar-fill {
-    position: absolute;
-    top: 0; left: 0; height: 100%;
-    width: 0%;
-    background: var(--accent);
-    border-radius: 0 2px 2px 0;
-  }
-  @keyframes preview-progress {
-    from { width: 0%; }
-    to   { width: 100%; }
-  }
-  .hover-preview-bar {
-    background: #1a1a1a;
-    padding: 8px 12px;
+
+  /* Preview side */
+  .row-preview {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 8px;
   }
-  .hover-preview-name {
-    font-size: 12px;
-    color: #ccc;
-    flex: 1;
+  .row-preview-frame {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 8px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    position: relative;
+    cursor: pointer;
   }
-  .hover-preview-loading {
-    width: 320px;
-    height: 180px;
-    background: #111;
+  .row-preview-img {
+    width: 100%;
+    height: 100%;
+    background-color: #111;
+    background-repeat: no-repeat;
+    background-size: 100% auto;
+  }
+  @keyframes preview-roll {
+    to { background-position-y: var(--strip-h, -100%); }
+  }
+  .row-preview-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.25);
+    opacity: 0;
+    transition: opacity 0.15s;
+    color: #fff;
+  }
+  .row-preview-frame:hover .row-preview-play { opacity: 1; }
+  .row-preview-play svg {
+    width: 56px; height: 56px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 50%;
+    padding: 14px;
+  }
+  .row-preview-loading {
+    width: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    color: #666;
+    color: #888;
     font-size: 12px;
   }
-  .hover-preview-prog {
-    width: 180px;
-    height: 3px;
+  .row-preview-loading .progbar {
+    width: 200px;
+    height: 4px;
     background: #333;
     border-radius: 2px;
     overflow: hidden;
   }
-  .hover-preview-prog-fill {
+  .row-preview-loading .progbar-fill {
     height: 100%;
     background: var(--accent);
     border-radius: 2px;
     transition: width 0.4s;
+  }
+  .row-preview-playbar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  .row-preview-playbar-fill {
+    position: absolute;
+    top: 0; left: 0; height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  @keyframes preview-progress {
+    from { width: 0%; }
+    to   { width: 100%; }
+  }
+
+  /* Info side */
+  .row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .row-info-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+  .row-info-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 16px;
+    row-gap: 6px;
+    font-size: 13px;
+  }
+  .row-info-grid dt {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    align-self: center;
+  }
+  .row-info-grid dd {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+  }
+  .row-info-loading {
+    color: var(--text-secondary);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   /* Info modal */
@@ -1018,18 +1075,6 @@
   </button>
 </div>
 
-<!-- Hover video preview -->
-<div class="hover-preview" id="hoverPreview">
-  <div class="hover-preview-img" id="hoverPreviewImg"></div>
-  <div class="hover-preview-playbar">
-    <div class="hover-preview-playbar-fill" id="hoverPreviewPlaybar"></div>
-  </div>
-  <div class="hover-preview-bar">
-    <div class="hover-preview-name" id="hoverPreviewName"></div>
-  </div>
-</div>
-
-
 <!-- Info modal -->
 <div class="modal-overlay" id="infoModal" onclick="if(event.target===this)closeInfoModal()">
   <div class="modal">
@@ -1054,6 +1099,7 @@
 
   // ── Navigation ──────────────────────────────────────────────────
   function navigate(path) {
+    if (typeof collapseExpanded === 'function') collapseExpanded();
     currentPath = path;
     loadDirectory(path);
     updateBreadcrumb(path);
@@ -1264,7 +1310,7 @@
         </div>`;
       } else {
         const brokenBadge = entry.broken ? `<span class="broken-badge" title="Corrupt file — moov atom not found">!</span>` : '';
-        html += `<div class="file-row" data-path="${escapeHtml(entry.path)}" data-name="${safeName}" data-has-preview="${entry.hasPreview && !entry.broken}" data-broken="${entry.broken}" onclick="${entry.broken ? 'void(0)' : `openPlayer(${attrJson(entry.path)}, ${attrJson(entry.name)})`}">
+        html += `<div class="file-row" data-path="${escapeHtml(entry.path)}" data-name="${safeName}" data-has-preview="${entry.hasPreview && !entry.broken}" data-broken="${entry.broken}" onclick="${entry.broken ? 'void(0)' : `toggleRowExpand(this, ${attrJson(entry.path)}, ${attrJson(entry.name)})`}">
           <div class="file-name">${videoIcon()}${brokenBadge}<span style="${entry.broken ? 'color:var(--text-secondary);text-decoration:line-through' : ''}">${safeName}</span></div>
           <div class="file-date">${formatDate(entry.modTime)}</div>
           <div class="file-size">${formatSize(entry.size)}</div>
@@ -1321,166 +1367,169 @@
     window.location.href = '/editor?path=' + encodeURIComponent(path);
   }
 
-  // ── Hover preview ────────────────────────────────────────────────
-  const preview = document.getElementById('hoverPreview');
-  const previewImg = document.getElementById('hoverPreviewImg');
-  const previewName = document.getElementById('hoverPreviewName');
+  // ── Inline row expansion (preview + info) ──────────────────────
+  let expandedPath = null;
+  let expandedPollTimer = null;
 
-  let previewCurrentPath = null;
-  let previewPollTimer = null;
-  let previewHideTimer = null;
-  let previewShowTimer = null;
-  const isMobile = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  function toggleRowExpand(rowEl, path, name) {
+    // Toggle off if same row clicked
+    if (expandedPath === path) {
+      collapseExpanded();
+      return;
+    }
+    collapseExpanded();
+    expandedPath = path;
+    rowEl.classList.add('expanded');
 
-  function positionPreviewAtRow(row) {
-    const pad = 8;
-    const ph = preview.offsetHeight || 210;
-    const rect = row.getBoundingClientRect();
+    const panel = document.createElement('div');
+    panel.className = 'row-expand';
+    panel.dataset.path = path;
+    panel.onclick = e => e.stopPropagation();
+    panel.innerHTML = `
+      <div class="row-preview">
+        <div class="row-preview-frame" onclick="openPlayer(${attrJson(path)}, ${attrJson(name)})">
+          <div class="row-preview-img" id="expandImg_holder"></div>
+          <div class="row-preview-play">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </div>
+        </div>
+        <div class="row-preview-playbar"><div class="row-preview-playbar-fill" id="expandBar_holder"></div></div>
+      </div>
+      <div class="row-info">
+        <div class="row-info-title">${escapeHtml(name)}</div>
+        <div id="expandInfo_holder" class="row-info-loading"><div class="spinner"></div> Loading info…</div>
+      </div>
+    `;
+    rowEl.insertAdjacentElement('afterend', panel);
 
-    // Horizontal: as far left as possible — start at the main content area's left edge
-    const mainEl = document.querySelector('.main');
-    const left = mainEl ? mainEl.getBoundingClientRect().left + pad : pad;
+    // Give the holders unique IDs so multiple expansions/teardowns don't clash
+    const imgEl  = panel.querySelector('.row-preview-img');
+    const barEl  = panel.querySelector('.row-preview-playbar-fill');
+    const infoEl = panel.querySelector('.row-info-loading');
 
-    // Vertical: center on the top boundary of the hovered row so it sits
-    // between that row and the one above it
-    let top = rect.top - ph / 2;
-    if (top + ph > window.innerHeight - pad) top = window.innerHeight - ph - pad;
-    if (top < pad) top = pad;
+    loadExpandedPreview(path, imgEl, barEl);
+    loadExpandedInfo(path, infoEl);
 
-    preview.style.left = left + 'px';
-    preview.style.top  = top  + 'px';
-  }
-
-  function showPreviewFor(path, name, hasPreview, row) {
-    if (previewCurrentPath === path) return; // already showing — don't reposition
-    clearTimeout(previewShowTimer);
-    clearTimeout(previewHideTimer);
-
-    // Small delay so quick mouse passes to click buttons don't trigger the preview
-    previewShowTimer = setTimeout(() => {
-      clearInterval(previewPollTimer);
-      previewCurrentPath = path;
-      previewName.textContent = name;
-      previewImg.style.animation = '';
-      previewImg.style.backgroundImage = '';
-      document.getElementById('hoverPreviewPlaybar').style.animation = '';
-
-      preview.classList.add('visible');
-      positionPreviewAtRow(row);
-
-      if (hasPreview) {
-        loadPreviewImage(path);
-      } else {
-        showPreviewLoading(0);
-        triggerPreviewBuild(path);
-      }
+    // Scroll the row into view so the panel is visible
+    setTimeout(() => {
+      const rect = rowEl.getBoundingClientRect();
+      if (rect.top < 80) rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 200);
   }
 
-  async function loadPreviewImage(path) {
+  function collapseExpanded() {
+    clearInterval(expandedPollTimer);
+    expandedPollTimer = null;
+    expandedPath = null;
+    document.querySelectorAll('.file-row.expanded').forEach(r => r.classList.remove('expanded'));
+    document.querySelectorAll('.row-expand').forEach(p => p.remove());
+  }
+
+  async function loadExpandedPreview(path, imgEl, barEl) {
+    const hasPreview = currentEntries.find(e => e.path === path)?.hasPreview;
+    if (hasPreview) {
+      showExpandedPreview(path, imgEl, barEl);
+    } else {
+      showExpandedPreviewLoading(imgEl, 0);
+      await triggerExpandedPreviewBuild(path, imgEl, barEl);
+    }
+  }
+
+  async function showExpandedPreview(path, imgEl, barEl) {
     const url = `/api/preview?path=${encodeURIComponent(path)}`;
     const [meta, imgLoaded] = await Promise.all([
       fetch(`/api/preview/meta?path=${encodeURIComponent(path)}`).then(r => r.json()).catch(() => ({frames: 150, width: 320, height: 180})),
       new Promise(resolve => {
         const img = new Image();
-        img.onload = () => resolve(true);
+        img.onload  = () => resolve(true);
         img.onerror = () => resolve(false);
         img.src = url;
       }),
     ]);
-    if (previewCurrentPath !== path || !imgLoaded) return;
+    if (expandedPath !== path || !imgLoaded) return;
 
     const frames = meta.frames || 150;
     const fw = meta.width  || 320;
     const fh = meta.height || 180;
     const stripH = fh * frames;
 
-    // Resize the popup frame to match the actual preview dimensions
-    previewImg.style.width  = fw + 'px';
-    previewImg.style.height = fh + 'px';
-    document.getElementById('hoverPreview').style.width = fw + 'px';
-
-    previewImg.innerHTML = '';
-    previewImg.style.backgroundImage = `url('${url}')`;
-    previewImg.style.backgroundSize  = `${fw}px ${stripH}px`;
-    previewImg.style.setProperty('--strip-h', `-${stripH}px`);
+    imgEl.innerHTML = '';
+    imgEl.style.backgroundImage = `url('${url}')`;
+    // Compute rendered dimensions: scale strip uniformly so width matches container.
+    const renderedW = imgEl.clientWidth;
+    const scale = renderedW / fw;
+    const renderedFrameH = fh * scale;
+    const renderedStripH = renderedFrameH * frames;
+    imgEl.style.backgroundSize  = `${renderedW}px ${renderedStripH}px`;
+    imgEl.style.setProperty('--strip-h', `-${renderedStripH}px`);
     const dur = getPreviewDuration();
-    previewImg.style.animation = `preview-roll ${dur}s steps(${frames}) infinite`;
-    document.getElementById('hoverPreviewPlaybar').style.animation = `preview-progress ${dur}s linear infinite`;
+    imgEl.style.animation = `preview-roll ${dur}s steps(${frames}) infinite`;
+    if (barEl) barEl.style.animation = `preview-progress ${dur}s linear infinite`;
   }
 
-  function showPreviewLoading(pct) {
-    previewImg.classList.remove('rolling');
-    previewImg.style.backgroundImage = '';
-    previewImg.innerHTML = `
-      <div class="hover-preview-loading">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="#444"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14z"/></svg>
+  function showExpandedPreviewLoading(imgEl, pct) {
+    imgEl.style.animation = '';
+    imgEl.style.backgroundImage = '';
+    imgEl.innerHTML = `
+      <div class="row-preview-loading">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="#444"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14z"/></svg>
         <div>Generating preview… ${pct}%</div>
-        <div class="hover-preview-prog"><div class="hover-preview-prog-fill" style="width:${pct}%"></div></div>
+        <div class="progbar"><div class="progbar-fill" style="width:${pct}%"></div></div>
       </div>`;
   }
 
-  async function triggerPreviewBuild(path) {
+  async function triggerExpandedPreviewBuild(path, imgEl, barEl) {
     try {
       await fetch(`/api/preview/build?path=${encodeURIComponent(path)}&${previewParams()}`, { method: 'POST' });
       startQueuePolling();
     } catch(e) { return; }
 
-    previewPollTimer = setInterval(async () => {
-      if (previewCurrentPath !== path) { clearInterval(previewPollTimer); return; }
+    expandedPollTimer = setInterval(async () => {
+      if (expandedPath !== path) { clearInterval(expandedPollTimer); return; }
       try {
         const res = await fetch(`/api/preview/progress?path=${encodeURIComponent(path)}`);
         const data = await res.json();
-        if (previewCurrentPath !== path) { clearInterval(previewPollTimer); return; }
+        if (expandedPath !== path) { clearInterval(expandedPollTimer); return; }
         if (data.done && !data.err) {
-          clearInterval(previewPollTimer);
-          loadPreviewImage(path);
+          clearInterval(expandedPollTimer);
+          showExpandedPreview(path, imgEl, barEl);
         } else if (data.done && data.err) {
-          clearInterval(previewPollTimer);
-          previewImg.innerHTML = `<div class="hover-preview-loading" style="color:#f28b82">${escapeHtml(data.err)}</div>`;
+          clearInterval(expandedPollTimer);
+          imgEl.innerHTML = `<div class="row-preview-loading" style="color:#f28b82">${escapeHtml(data.err)}</div>`;
         } else {
-          showPreviewLoading(data.percent || 0);
+          showExpandedPreviewLoading(imgEl, data.percent || 0);
         }
-      } catch(e) { clearInterval(previewPollTimer); }
+      } catch(e) { clearInterval(expandedPollTimer); }
     }, 1500);
   }
 
-  function hidePreview() {
-    clearTimeout(previewShowTimer); // cancel pending show
-    previewHideTimer = setTimeout(() => {
-      preview.classList.remove('visible');
-      previewCurrentPath = null;
-      previewImg.style.animation = '';
-      document.getElementById('hoverPreviewPlaybar').style.animation = '';
-      clearInterval(previewPollTimer);
-    }, 120);
+  async function loadExpandedInfo(path, infoEl) {
+    try {
+      const res = await fetch(`/api/info?path=${encodeURIComponent(path)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const info = await res.json();
+      if (expandedPath !== path) return;
+      // Replace with grid
+      const parent = infoEl.parentElement;
+      const grid = document.createElement('dl');
+      grid.className = 'row-info-grid';
+      const rows = [
+        ['Resolution', (info.width && info.height) ? `${info.width} × ${info.height}` : '—'],
+        ['Duration',   info.duration > 0 ? fmtDuration(info.duration) : '—'],
+        ['Frame rate', info.fps ? info.fps + ' fps' : '—'],
+        ['Bitrate',    info.bitrate ? Math.round(info.bitrate / 1000) + ' kbps' : '—'],
+        ['Video',      info.codec || '—'],
+        ['Audio',      info.audio || '—'],
+        ['Container',  info.format || '—'],
+        ['Size',       formatSize(info.size)],
+      ];
+      grid.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(String(v))}</dd>`).join('');
+      infoEl.replaceWith(grid);
+    } catch(e) {
+      if (expandedPath !== path) return;
+      infoEl.innerHTML = '<div style="color:#f28b82">Failed: ' + escapeHtml(e.message || String(e)) + '</div>';
+    }
   }
-
-  // Use mouseover (delegation) so we get one event per row entry, not every pixel
-  document.getElementById('fileList').addEventListener('mouseover', e => {
-    const row = e.target.closest('.file-row[data-path]');
-    if (!row || row.dataset.broken === 'true' || row.dataset.path.includes('/CLIPS/')) return;
-    clearTimeout(previewHideTimer);
-    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', row);
-  });
-
-  document.getElementById('fileList').addEventListener('mouseout', e => {
-    // Only hide when leaving a row entirely (not moving between child elements)
-    const row = e.target.closest('.file-row[data-path]');
-    if (row && row.contains(e.relatedTarget)) return;
-    hidePreview();
-  });
-
-  // Mobile: touchstart shows preview, touchend hides after delay
-  document.getElementById('fileList').addEventListener('touchstart', e => {
-    const row = e.target.closest('.file-row[data-path]');
-    if (!row) return;
-    showPreviewFor(row.dataset.path, row.dataset.name, row.dataset.hasPreview === 'true', row);
-  }, { passive: true });
-
-  document.getElementById('fileList').addEventListener('touchend', () => {
-    setTimeout(() => hidePreview(), 2000);
-  }, { passive: true });
 
   // ── Preview settings ──────────────────────────────────────────────
   function loadPreviewSettings() {
