@@ -149,6 +149,33 @@
   }
   .topbar-icon-btn:hover { background: var(--hover-bg); color: var(--text); }
 
+  /* View toggle (list / grid) */
+  .view-toggle {
+    display: flex;
+    background: var(--hover-bg);
+    border-radius: 18px;
+    padding: 3px;
+    flex-shrink: 0;
+  }
+  .view-toggle button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .view-toggle button:hover { color: var(--text); }
+  .view-toggle button.active {
+    background: var(--surface);
+    color: var(--accent);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+
   /* Breadcrumb back button */
   .breadcrumb-back {
     width: 32px;
@@ -659,6 +686,211 @@
     margin: 4px 0;
   }
 
+  /* Grid view */
+  .file-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+    align-content: start;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+    position: relative;
+  }
+  .tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    border-color: var(--accent);
+  }
+  .tile.broken { opacity: 0.55; cursor: default; }
+  .tile.broken:hover { transform: none; box-shadow: none; border-color: var(--border); }
+
+  .tile-thumb {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    background-size: cover;
+    background-position: center top;
+    background-repeat: no-repeat;
+    position: relative;
+    overflow: hidden;
+  }
+  .tile-thumb.no-thumb {
+    background: linear-gradient(135deg, var(--hover-bg), var(--border));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+  .tile-thumb.no-thumb svg { width: 36px; height: 36px; opacity: 0.5; }
+
+  .tile-thumb-anim {
+    position: absolute;
+    inset: 0;
+    background-color: #000;
+    background-repeat: no-repeat;
+    background-size: 100% auto;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .tile:hover .tile-thumb-anim.ready { opacity: 1; }
+
+  .tile-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 8px;
+    background: linear-gradient(to top, rgba(0,0,0,0.55), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .tile:hover .tile-overlay { opacity: 1; }
+  .tile-duration {
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile-broken-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    z-index: 2;
+  }
+  .tile-sprite-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--success);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    z-index: 2;
+    letter-spacing: 0.3px;
+  }
+  .tile-loading-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+    display: none;
+  }
+  .tile-loading-bar.active { display: block; }
+  .tile-loading-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.4s;
+  }
+
+  .tile-body {
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .tile-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tile-meta {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .tile-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 3;
+  }
+  .tile:hover .tile-actions { opacity: 1; }
+  .tile-action-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .tile-action-btn:hover { background: rgba(0,0,0,0.85); }
+
+  /* Folder tile */
+  .tile-folder {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16/9;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .tile-folder:hover { border-color: var(--accent); background: var(--hover-bg); }
+  .tile-folder svg { color: var(--text-secondary); }
+  .tile-folder-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .tile-folder-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  /* Hide list controls in grid view, hide grid in list view */
+  body.view-grid .list-header { display: none; }
+  body.view-grid .file-list { display: none; }
+  body.view-list .file-grid { display: none; }
+
   /* Inline expanded row panel */
   .file-row.expanded {
     background: var(--accent-soft);
@@ -931,6 +1163,14 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
     </button>
   </label>
+  <div class="view-toggle">
+    <button id="viewListBtn" class="active" onclick="setView('list')" title="List view">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+    </button>
+    <button id="viewGridBtn" onclick="setView('grid')" title="Grid view">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8zm6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z"/></svg>
+    </button>
+  </div>
   <button class="topbar-icon-btn" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
     <svg id="themeIconSun" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/></svg>
     <svg id="themeIconMoon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg>
@@ -1084,6 +1324,7 @@
     </div>
     <div class="dir-summary" id="dirSummary"></div>
     <div class="file-list" id="fileList"></div>
+    <div class="file-grid" id="fileGrid"></div>
   </div>
 </div>
 
@@ -1179,6 +1420,30 @@
   }
   applyTheme(localStorage.getItem('theme') || 'light');
 
+  // ── View mode (list / grid) ────────────────────────────────────
+  let viewMode = localStorage.getItem('viewMode') || 'list';
+
+  function setView(mode) {
+    viewMode = mode;
+    localStorage.setItem('viewMode', mode);
+    document.body.classList.toggle('view-list', mode === 'list');
+    document.body.classList.toggle('view-grid', mode === 'grid');
+    document.getElementById('viewListBtn').classList.toggle('active', mode === 'list');
+    document.getElementById('viewGridBtn').classList.toggle('active', mode === 'grid');
+    // Re-render whatever is currently loaded
+    if (currentEntries.length || true) {
+      const sorted = sortEntries(currentEntries);
+      renderList(sorted, currentPath);
+      renderGrid(sorted, currentPath);
+    }
+  }
+  // Apply on initial load (before navigate runs)
+  document.body.classList.add(viewMode === 'grid' ? 'view-grid' : 'view-list');
+  setTimeout(() => {
+    document.getElementById('viewListBtn').classList.toggle('active', viewMode === 'list');
+    document.getElementById('viewGridBtn').classList.toggle('active', viewMode === 'grid');
+  }, 0);
+
   // ── Back button ────────────────────────────────────────────────
   function goBack() {
     if (currentPath === '/' || currentPath === '') return;
@@ -1220,7 +1485,9 @@
       if (res.status === 401) { window.location.href = '/login'; return; }
       currentEntries = await res.json();
       renderSummary(currentEntries, path);
-      renderList(sortEntries(currentEntries), path);
+      const sorted = sortEntries(currentEntries);
+      renderList(sorted, path);
+      renderGrid(sorted, path);
     } catch(e) {
       list.innerHTML = '<div class="empty-state">Failed to load directory.</div>';
     }
@@ -1267,7 +1534,9 @@
       const bc = document.getElementById('breadcrumb');
       bc.innerHTML = `<span class="breadcrumb-item current">Search: "${escapeHtml(q)}" — ${currentEntries.length} result${currentEntries.length !== 1 ? 's' : ''}</span>`;
       renderSummary(currentEntries, currentPath);
-      renderList(sortEntries(currentEntries), currentPath);
+      const sorted = sortEntries(currentEntries);
+      renderList(sorted, currentPath);
+      renderGrid(sorted, currentPath);
     } catch(e) {
       list.innerHTML = '<div class="empty-state">Search failed.</div>';
     }
@@ -1296,7 +1565,9 @@
       sortDir = col === 'size' ? -1 : 1; // size defaults to desc (largest first)
     }
     updateSortHeaders();
-    renderList(sortEntries(currentEntries), currentPath);
+    const sorted = sortEntries(currentEntries);
+    renderList(sorted, currentPath);
+    renderGrid(sorted, currentPath);
   }
 
   function updateSortHeaders() {
@@ -1365,7 +1636,185 @@
     </svg>`;
   }
 
-  // ── Render ────────────────────────────────────────────────────────
+  // ── Render: grid view ─────────────────────────────────────────────
+  function renderGrid(entries, path) {
+    const grid = document.getElementById('fileGrid');
+    if (!entries || entries.length === 0) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><svg width="48" height="48" viewBox="0 0 24 24" style="color:var(--border)" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg><span>This folder is empty</span></div>';
+      return;
+    }
+
+    let html = '';
+
+    // Parent ".." tile when not at root
+    if (path !== '/' && path !== '') {
+      const parent = path.split('/').slice(0, -1).join('/') || '/';
+      html += `<div class="tile-folder" onclick="navigate('${parent}')">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <div class="tile-folder-name">.. (go up)</div>
+      </div>`;
+    }
+
+    entries.forEach(entry => {
+      const safeName = escapeHtml(entry.name);
+      if (entry.isDir) {
+        html += `<div class="tile-folder" onclick="navigate(${attrJson(entry.path)})">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+          <div class="tile-folder-name">${safeName}</div>
+          ${entry.size ? `<div class="tile-folder-meta">${formatSize(entry.size)}</div>` : ''}
+        </div>`;
+        return;
+      }
+
+      const fileUrl = `/files${encodedFilePath(entry.path)}`;
+      const potUrl  = `potplayer://${window.location.origin}${fileUrl}`;
+      const isClips = entry.path.includes('/CLIPS/');
+      const posterUrl = `/api/poster?path=${encodeURIComponent(entry.path)}`;
+      const ctx = attrJson({ path: entry.path, name: entry.name, vmPath: entry.vmPath || '', broken: entry.broken || false });
+
+      html += `<div class="tile ${entry.broken ? 'broken' : ''}"
+                   data-path="${escapeHtml(entry.path)}"
+                   data-name="${safeName}"
+                   data-has-preview="${entry.hasPreview && !entry.broken}"
+                   data-is-clips="${isClips}"
+                   onclick="${entry.broken ? 'void(0)' : `tileClick(this, ${attrJson(entry.path)}, ${attrJson(entry.name)})`}">
+        ${entry.broken ? '<div class="tile-broken-badge">BROKEN</div>' : ''}
+        ${entry.hasSprites ? '<div class="tile-sprite-badge">SPRITES</div>' : ''}
+        <div class="tile-thumb${entry.broken ? ' no-thumb' : ''}"
+             style="${entry.broken ? '' : `background-image:url('${posterUrl}')`}">
+          ${entry.broken ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>' : ''}
+          <div class="tile-thumb-anim"></div>
+          <div class="tile-overlay"></div>
+          <div class="tile-loading-bar"><div class="tile-loading-bar-fill" style="width:0%"></div></div>
+        </div>
+        <div class="tile-actions">
+          <a class="tile-action-btn" title="PotPlayer" href="${potUrl}" onclick="event.stopPropagation()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </a>
+          <a class="tile-action-btn" title="Download" href="${fileUrl}" download="${safeName}" onclick="event.stopPropagation()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </a>
+          <button class="tile-action-btn" title="More" onclick="event.stopPropagation(); openMenu(event, ${ctx})">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+          </button>
+        </div>
+        <div class="tile-body">
+          <div class="tile-name" title="${safeName}">${safeName}</div>
+          <div class="tile-meta">
+            <span>${formatSize(entry.size)}</span>
+            <span>·</span>
+            <span>${formatDate(entry.modTime)}</span>
+          </div>
+        </div>
+      </div>`;
+    });
+
+    grid.innerHTML = html;
+  }
+
+  // Tile click — same as toggleRowExpand but inserted relative to the tile
+  function tileClick(tileEl, path, name) {
+    if (expandedPath === path) {
+      collapseExpanded();
+      return;
+    }
+    // For grid view, use the in-browser player directly. The inline expand
+    // panel doesn't suit the grid layout.
+    openPlayer(path, name);
+  }
+
+  // ── Tile hover preview ──────────────────────────────────────────
+  // On hover: start the preview animation if available. If not, trigger build
+  // and show progress bar at the bottom of the tile.
+  document.getElementById('fileGrid').addEventListener('mouseover', e => {
+    const tile = e.target.closest('.tile[data-path]');
+    if (!tile || tile.classList.contains('broken')) return;
+    if (tile.dataset.isClips === 'true') return;
+    if (tile.dataset.animLoaded === 'true' || tile.dataset.animLoading === 'true') {
+      return; // already set up; CSS handles fade-in
+    }
+    activateTileAnim(tile);
+  });
+
+  async function activateTileAnim(tile) {
+    const path = tile.dataset.path;
+    const hasPreview = tile.dataset.hasPreview === 'true';
+
+    if (hasPreview) {
+      tile.dataset.animLoading = 'true';
+      const ok = await loadTileAnimation(tile, path);
+      tile.dataset.animLoading = 'false';
+      if (ok) tile.dataset.animLoaded = 'true';
+      return;
+    }
+
+    // Need to build first
+    tile.dataset.animLoading = 'true';
+    const bar  = tile.querySelector('.tile-loading-bar');
+    const fill = tile.querySelector('.tile-loading-bar-fill');
+    bar.classList.add('active');
+
+    try {
+      await fetch(`/api/preview/build?path=${encodeURIComponent(path)}&${previewParams()}`, { method: 'POST' });
+      startQueuePolling();
+    } catch(e) {
+      bar.classList.remove('active');
+      tile.dataset.animLoading = 'false';
+      return;
+    }
+
+    const poll = setInterval(async () => {
+      // Stop if tile no longer in DOM (navigated away)
+      if (!document.body.contains(tile)) { clearInterval(poll); return; }
+      try {
+        const res = await fetch(`/api/preview/progress?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        fill.style.width = (data.percent || 0) + '%';
+        if (data.done && !data.err) {
+          clearInterval(poll);
+          bar.classList.remove('active');
+          const ok = await loadTileAnimation(tile, path);
+          if (ok) tile.dataset.animLoaded = 'true';
+          tile.dataset.animLoading = 'false';
+        } else if (data.done && data.err) {
+          clearInterval(poll);
+          bar.classList.remove('active');
+          tile.dataset.animLoading = 'false';
+        }
+      } catch(e) { clearInterval(poll); bar.classList.remove('active'); }
+    }, 1500);
+  }
+
+  async function loadTileAnimation(tile, path) {
+    const animEl = tile.querySelector('.tile-thumb-anim');
+    if (!animEl) return false;
+    const url = `/api/preview?path=${encodeURIComponent(path)}`;
+    const [meta, imgOk] = await Promise.all([
+      fetch(`/api/preview/meta?path=${encodeURIComponent(path)}`).then(r => r.json()).catch(() => ({frames: 150, width: 320, height: 180})),
+      new Promise(resolve => {
+        const img = new Image();
+        img.onload  = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = url;
+      }),
+    ]);
+    if (!imgOk || !document.body.contains(tile)) return false;
+
+    const frames = meta.frames || 150;
+    const renderedW = animEl.clientWidth;
+    const renderedFrameH = animEl.clientHeight;
+    const renderedStripH = renderedFrameH * frames;
+
+    animEl.style.backgroundImage = `url('${url}')`;
+    animEl.style.backgroundSize  = `${renderedW}px ${renderedStripH}px`;
+    animEl.style.setProperty('--strip-h', `-${renderedStripH}px`);
+    const dur = getPreviewDuration();
+    animEl.style.animation = `preview-roll ${dur}s steps(${frames}) infinite`;
+    animEl.classList.add('ready');
+    return true;
+  }
+
+  // ── Render: list view ─────────────────────────────────────────────
   function renderList(entries, path) {
     const list = document.getElementById('fileList');
     if (!entries || entries.length === 0) {

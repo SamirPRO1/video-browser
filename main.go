@@ -1178,6 +1178,88 @@ func previewImageHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, imgPath)
 }
 
+// --- Poster (single first-frame thumbnail for grid tiles) ---
+
+const (
+	posterW = 320
+	posterH = 180
+)
+
+func generatePoster(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	vf := fmt.Sprintf(
+		"scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
+		posterW, posterH, posterW, posterH,
+	)
+	cmd := exec.Command(ffmpegBin,
+		"-ss", "1", // seek 1s in to avoid black opening frames
+		"-i", src,
+		"-vf", vf,
+		"-frames:v", "1",
+		"-q:v", "5",
+		"-y", dst,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Fall back to frame 0 in case the file is shorter than 1s
+		cmd2 := exec.Command(ffmpegBin,
+			"-i", src,
+			"-vf", vf,
+			"-frames:v", "1",
+			"-q:v", "5",
+			"-y", dst,
+		)
+		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
+			return fmt.Errorf("%s\n%s", out, out2)
+		}
+	}
+	return nil
+}
+
+// Serialize poster generation per file so concurrent requests don't run ffmpeg twice.
+var (
+	posterLocks   = map[string]*sync.Mutex{}
+	posterLocksMu sync.Mutex
+)
+
+func posterLock(path string) *sync.Mutex {
+	posterLocksMu.Lock()
+	defer posterLocksMu.Unlock()
+	m, ok := posterLocks[path]
+	if !ok {
+		m = &sync.Mutex{}
+		posterLocks[path] = m
+	}
+	return m
+}
+
+func posterHandler(w http.ResponseWriter, r *http.Request) {
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	posterPath := filepath.Join(thumbCacheDir(src), "poster.jpg")
+
+	if _, err := os.Stat(posterPath); os.IsNotExist(err) {
+		mu := posterLock(src)
+		mu.Lock()
+		// Re-check after acquiring the lock
+		if _, err := os.Stat(posterPath); os.IsNotExist(err) {
+			if err := generatePoster(src, posterPath); err != nil {
+				mu.Unlock()
+				http.Error(w, "generation failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		mu.Unlock()
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, posterPath)
+}
+
 func previewMetaHandler(w http.ResponseWriter, r *http.Request) {
 	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
 	if err != nil {
@@ -1818,6 +1900,7 @@ func main() {
 	http.HandleFunc("/api/preview/progress", requireAuth(previewProgressHandler))
 	http.HandleFunc("/api/preview/meta", requireAuth(previewMetaHandler))
 	http.HandleFunc("/api/preview", requireAuth(previewImageHandler))
+	http.HandleFunc("/api/poster", requireAuth(posterHandler))
 	http.HandleFunc("/api/clip", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
