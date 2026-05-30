@@ -54,9 +54,46 @@
     font-weight: 500;
     color: var(--text);
     cursor: pointer;
-    flex: 1;
   }
   .topbar-logo svg { color: var(--accent); }
+
+  .topbar-search {
+    flex: 1;
+    max-width: 540px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--hover-bg);
+    border-radius: 8px;
+    padding: 8px 14px;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .topbar-search:focus-within {
+    background: var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+  .topbar-search svg { color: var(--text-secondary); flex-shrink: 0; }
+  .topbar-search input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .topbar-search input::placeholder { color: var(--text-secondary); }
+  .topbar-search-clear {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px;
+    display: none;
+    line-height: 0;
+  }
+  .topbar-search-clear:hover { color: var(--text); }
+  .topbar-search input:not(:placeholder-shown) ~ .topbar-search-clear { display: block; }
 
   .topbar-logout {
     display: flex;
@@ -652,6 +689,92 @@
     transition: width 0.4s;
   }
 
+  /* Info modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+    max-width: 480px;
+    width: 100%;
+    transform: scale(0.96);
+    transition: transform 0.18s;
+    overflow: hidden;
+  }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .modal-title {
+    font-size: 15px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    line-height: 0;
+  }
+  .modal-close:hover { color: var(--text); background: var(--hover-bg); }
+  .modal-body {
+    padding: 16px 20px 20px;
+    font-size: 14px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .info-row {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 500;
+  }
+  .info-value {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+  }
+  .info-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 30px 0;
+    color: var(--text-secondary);
+  }
+
   /* Toast */
   .toast {
     position: fixed;
@@ -684,6 +807,13 @@
     </svg>
     Video Browser
   </div>
+  <label class="topbar-search">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+    <input type="text" id="searchInput" placeholder="Search videos by filename…" autocomplete="off">
+    <button type="button" class="topbar-search-clear" onclick="clearSearch()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  </label>
   <a href="/logout" class="topbar-logout">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
       <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
@@ -872,6 +1002,11 @@
     Copy VM path
   </button>
   <div class="ctx-sep"></div>
+  <button class="ctx-item" onclick="ctxInfo()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-6h2v6zm0-8h-2V7h2v4z"/></svg>
+    File Info
+  </button>
+  <div class="ctx-sep"></div>
   <button class="ctx-item" id="ctxRecoverBtn" onclick="ctxRecover()" style="display:none">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
     Recover File
@@ -894,6 +1029,19 @@
   </div>
 </div>
 
+
+<!-- Info modal -->
+<div class="modal-overlay" id="infoModal" onclick="if(event.target===this)closeInfoModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="infoModalTitle">File Info</div>
+      <button class="modal-close" onclick="closeInfoModal()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="infoModalBody"></div>
+  </div>
+</div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
@@ -939,6 +1087,53 @@
       renderList(sortEntries(currentEntries), path);
     } catch(e) {
       list.innerHTML = '<div class="empty-state">Failed to load directory.</div>';
+    }
+  }
+
+  // ── Search ─────────────────────────────────────────────────────
+  let searchTimer = null;
+  let searchActive = false;
+
+  const searchInput = document.getElementById('searchInput');
+  searchInput.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    if (!q) {
+      if (searchActive) {
+        searchActive = false;
+        loadDirectory(currentPath);
+      }
+      return;
+    }
+    searchTimer = setTimeout(() => runSearch(q), 250);
+  });
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') clearSearch();
+  });
+
+  function clearSearch() {
+    searchInput.value = '';
+    if (searchActive) {
+      searchActive = false;
+      loadDirectory(currentPath);
+    }
+  }
+
+  async function runSearch(q) {
+    const list = document.getElementById('fileList');
+    list.innerHTML = '<div class="loading"><div class="spinner"></div> Searching…</div>';
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+      if (res.status === 401) { window.location.href = '/login'; return; }
+      const results = await res.json();
+      searchActive = true;
+      currentEntries = results || [];
+      const bc = document.getElementById('breadcrumb');
+      bc.innerHTML = `<span class="breadcrumb-item current">Search: "${escapeHtml(q)}" — ${currentEntries.length} result${currentEntries.length !== 1 ? 's' : ''}</span>`;
+      renderSummary(currentEntries, currentPath);
+      renderList(sortEntries(currentEntries), currentPath);
+    } catch(e) {
+      list.innerHTML = '<div class="empty-state">Search failed.</div>';
     }
   }
 
@@ -1501,6 +1696,67 @@
   })();
 
 
+  async function ctxInfo() {
+    if (!ctxEntry) return;
+    const { path, name } = ctxEntry;
+    closeMenu();
+    openInfoModal(path, name);
+  }
+
+  function openInfoModal(path, name) {
+    document.getElementById('infoModalTitle').textContent = name;
+    document.getElementById('infoModalBody').innerHTML =
+      '<div class="info-loading"><div class="spinner"></div> Loading…</div>';
+    document.getElementById('infoModal').classList.add('open');
+
+    fetch(`/api/info?path=${encodeURIComponent(path)}`)
+      .then(async r => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      })
+      .then(info => {
+        document.getElementById('infoModalBody').innerHTML = renderInfoBody(info, path);
+      })
+      .catch(e => {
+        document.getElementById('infoModalBody').innerHTML =
+          '<div class="info-loading" style="color:#f28b82">Failed: ' + escapeHtml(e.message || String(e)) + '</div>';
+      });
+  }
+
+  function closeInfoModal() {
+    document.getElementById('infoModal').classList.remove('open');
+  }
+
+  function renderInfoBody(info, path) {
+    const dur = info.duration > 0 ? fmtDuration(info.duration) : '—';
+    const res = (info.width && info.height) ? `${info.width} × ${info.height}` : '—';
+    const fps = info.fps ? info.fps + ' fps' : '—';
+    const br  = info.bitrate ? Math.round(info.bitrate / 1000) + ' kbps' : '—';
+    const codec = info.codec || '—';
+    const audio = info.audio || '—';
+    const format = info.format || '—';
+    return `
+      <div class="info-row"><div class="info-label">Path</div><div class="info-value">${escapeHtml(path)}</div></div>
+      <div class="info-row"><div class="info-label">Size</div><div class="info-value">${formatSize(info.size)}</div></div>
+      <div class="info-row"><div class="info-label">Duration</div><div class="info-value">${dur}</div></div>
+      <div class="info-row"><div class="info-label">Resolution</div><div class="info-value">${res}</div></div>
+      <div class="info-row"><div class="info-label">Frame rate</div><div class="info-value">${fps}</div></div>
+      <div class="info-row"><div class="info-label">Bitrate</div><div class="info-value">${br}</div></div>
+      <div class="info-row"><div class="info-label">Video codec</div><div class="info-value">${escapeHtml(codec)}</div></div>
+      <div class="info-row"><div class="info-label">Audio</div><div class="info-value">${escapeHtml(audio)}</div></div>
+      <div class="info-row"><div class="info-label">Container</div><div class="info-value">${escapeHtml(format)}</div></div>
+    `;
+  }
+
+  function fmtDuration(sec) {
+    const s = Math.floor(sec);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`;
+  }
+
   async function ctxRecover() {
     if (!ctxEntry) return;
     const { path, name } = ctxEntry;
@@ -1620,7 +1876,18 @@
   document.addEventListener('keydown', e => {
     const video = document.getElementById('videoEl');
     const open = document.getElementById('playerOverlay').classList.contains('open');
-    if (e.key === 'Escape') { closeMenu(); if (open) closePlayer(); return; }
+    if (e.key === 'Escape') {
+      closeMenu();
+      if (document.getElementById('infoModal').classList.contains('open')) { closeInfoModal(); return; }
+      if (open) closePlayer();
+      return;
+    }
+    // '/' focuses the search box (unless typing in another input)
+    if (e.key === '/' && !['INPUT','TEXTAREA'].includes(e.target.tagName)) {
+      e.preventDefault();
+      searchInput.focus();
+      return;
+    }
     if (!open) return;
     switch (e.key) {
       case 'ArrowRight': e.preventDefault(); video.currentTime += 5;  break;

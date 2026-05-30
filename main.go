@@ -111,11 +111,50 @@ func findBin(names ...string) string {
 	return ""
 }
 
-// --- Session store ---
+// --- Session store (persisted to disk) ---
 var (
-	sessions   = map[string]time.Time{}
-	sessionsMu sync.Mutex
+	sessions     = map[string]time.Time{}
+	sessionsMu   sync.Mutex
+	sessionsPath = "./sessions.json"
 )
+
+func saveSessions() {
+	sessionsMu.Lock()
+	// Snapshot non-expired sessions
+	live := make(map[string]time.Time, len(sessions))
+	now := time.Now()
+	for tok, exp := range sessions {
+		if exp.After(now) {
+			live[tok] = exp
+		}
+	}
+	sessionsMu.Unlock()
+	data, _ := json.Marshal(live)
+	tmp := sessionsPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err == nil {
+		os.Rename(tmp, sessionsPath)
+	}
+}
+
+func loadSessions() {
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return
+	}
+	var loaded map[string]time.Time
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return
+	}
+	sessionsMu.Lock()
+	now := time.Now()
+	for tok, exp := range loaded {
+		if exp.After(now) {
+			sessions[tok] = exp
+		}
+	}
+	sessionsMu.Unlock()
+	log.Printf("Loaded %d existing session(s) from disk", len(sessions))
+}
 
 func newSession() string {
 	b := make([]byte, 16)
@@ -124,6 +163,7 @@ func newSession() string {
 	sessionsMu.Lock()
 	sessions[token] = time.Now().Add(24 * time.Hour)
 	sessionsMu.Unlock()
+	saveSessions()
 	return token
 }
 
@@ -138,6 +178,7 @@ func deleteSession(token string) {
 	sessionsMu.Lock()
 	delete(sessions, token)
 	sessionsMu.Unlock()
+	saveSessions()
 }
 
 // --- Auth middleware ---
@@ -1187,6 +1228,189 @@ func collectVideos(root string) ([]string, error) {
 	return files, err
 }
 
+// --- Search ---
+
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	w.Header().Set("Content-Type", "application/json")
+	if q == "" {
+		json.NewEncoder(w).Encode([]Entry{})
+		return
+	}
+
+	// Cap results so a huge library doesn't lock up the browser
+	const maxResults = 200
+	var results []Entry
+
+	rootClean := filepath.Clean(*videoRoot)
+	errStop := fmt.Errorf("stop")
+	filepath.Walk(*videoRoot, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := info.Name()
+		if strings.HasPrefix(name, ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !videoExts[strings.ToLower(filepath.Ext(name))] {
+			return nil
+		}
+		if !strings.Contains(strings.ToLower(name), q) {
+			return nil
+		}
+		rel, err := filepath.Rel(rootClean, p)
+		if err != nil {
+			return nil
+		}
+		cacheDir := thumbCacheDir(p)
+		entry := Entry{
+			Name:    name,
+			Path:    "/" + filepath.ToSlash(rel),
+			VMPath:  p,
+			Size:    info.Size(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, "meta.json")); err == nil {
+			entry.HasSprites = true
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, "preview.jpg")); err == nil {
+			entry.HasPreview = true
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, "broken")); err == nil {
+			entry.Broken = true
+		}
+		results = append(results, entry)
+		if len(results) >= maxResults {
+			return errStop
+		}
+		return nil
+	})
+
+	sort.Slice(results, func(i, j int) bool {
+		return strings.ToLower(results[i].Name) < strings.ToLower(results[j].Name)
+	})
+
+	json.NewEncoder(w).Encode(results)
+}
+
+// --- Video info ---
+
+type videoInfo struct {
+	Path     string  `json:"path"`
+	Size     int64   `json:"size"`
+	Duration float64 `json:"duration"`
+	Codec    string  `json:"codec"`
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	FPS      string  `json:"fps"`
+	Bitrate  int64   `json:"bitrate"`
+	Format   string  `json:"format"`
+	Audio    string  `json:"audio"`
+}
+
+func infoHandler(w http.ResponseWriter, r *http.Request) {
+	src, err := resolveInRoot(*videoRoot, r.URL.Query().Get("path"))
+	if err != nil {
+		// Try CLIPS path
+		if realDir, filename, isClips := splitAtClips(r.URL.Query().Get("path")); isClips {
+			src = filepath.Join(*clipsRoot, filepath.Clean("/"+realDir), filename)
+			if !strings.HasPrefix(src, filepath.Clean(*clipsRoot)) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		} else {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	stat, err := os.Stat(src)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	cmd := exec.Command(ffprobeBin,
+		"-v", "error",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		src,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		http.Error(w, "ffprobe failed: "+string(out), http.StatusInternalServerError)
+		return
+	}
+
+	var probe struct {
+		Format struct {
+			FormatName string `json:"format_name"`
+			Duration   string `json:"duration"`
+			BitRate    string `json:"bit_rate"`
+		} `json:"format"`
+		Streams []struct {
+			CodecType    string `json:"codec_type"`
+			CodecName    string `json:"codec_name"`
+			Width        int    `json:"width"`
+			Height       int    `json:"height"`
+			RFrameRate   string `json:"r_frame_rate"`
+			Channels     int    `json:"channels"`
+			SampleRate   string `json:"sample_rate"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(out, &probe); err != nil {
+		http.Error(w, "ffprobe parse: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	info := videoInfo{
+		Path:   r.URL.Query().Get("path"),
+		Size:   stat.Size(),
+		Format: probe.Format.FormatName,
+	}
+	if d, err := strconv.ParseFloat(probe.Format.Duration, 64); err == nil {
+		info.Duration = d
+	}
+	if br, err := strconv.ParseInt(probe.Format.BitRate, 10, 64); err == nil {
+		info.Bitrate = br
+	}
+	for _, s := range probe.Streams {
+		switch s.CodecType {
+		case "video":
+			if info.Codec == "" {
+				info.Codec = s.CodecName
+				info.Width = s.Width
+				info.Height = s.Height
+				// r_frame_rate is something like "30/1" — simplify it
+				if parts := strings.Split(s.RFrameRate, "/"); len(parts) == 2 {
+					num, _ := strconv.ParseFloat(parts[0], 64)
+					den, _ := strconv.ParseFloat(parts[1], 64)
+					if den > 0 {
+						info.FPS = fmt.Sprintf("%.2f", num/den)
+					}
+				}
+			}
+		case "audio":
+			if info.Audio == "" {
+				info.Audio = fmt.Sprintf("%s, %dch", s.CodecName, s.Channels)
+				if s.SampleRate != "" {
+					info.Audio += ", " + s.SampleRate + " Hz"
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(info)
+}
+
 func runBulkPreview(cfg previewConfig) {
 	videos, err := collectVideos(*videoRoot)
 	if err != nil {
@@ -1512,6 +1736,8 @@ func main() {
 	log.Printf("ffmpeg: %s", ffmpegBin)
 	log.Printf("ffprobe: %s", ffprobeBin)
 
+	loadSessions()
+
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			loginPostHandler(w, r)
@@ -1540,6 +1766,8 @@ func main() {
 	http.HandleFunc("/api/sprite/build-folder", requireAuth(spriteBuildFolderHandler))
 	http.HandleFunc("/api/recover", requireAuth(recoverHandler))
 	http.HandleFunc("/api/queue", requireAuth(unifiedQueueHandler))
+	http.HandleFunc("/api/search", requireAuth(searchHandler))
+	http.HandleFunc("/api/info", requireAuth(infoHandler))
 	http.HandleFunc("/api/sprite/queue", requireAuth(spriteQueueHandler))
 	http.HandleFunc("/api/sprite/build", requireAuth(spriteBuildHandler))
 	http.HandleFunc("/api/sprite/progress", requireAuth(spriteProgressHandler))
